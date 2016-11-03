@@ -1,1 +1,0 @@
-# strecket-server
