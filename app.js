@@ -1,5 +1,19 @@
 var express = require('express')
 var app = express()
+const port = 3000
+
+
+var mysql      = require('mysql');
+var connection = mysql.createConnection({
+  host     : '104.155.92.17',
+  user     : 'root',
+  password : 'potatismos',
+  database : 'strecket'
+});
+ 
+connection.connect();
+ 
+ 
 
 app.get('/', function (request, result) {
 	result.send('Hello World!')
@@ -7,12 +21,27 @@ app.get('/', function (request, result) {
 
 app.get('/stocks', function (request, result) {
 
-	var stocks = [];
-
-	stocks.push({symbol:'AAPL', price:200});
-	stocks.push({symbol:'TSLA', price:300});
-
-	result.send(JSON.stringify(stocks));
+	connection.query('SELECT * FROM aktier', function(err, rows, fields) {
+	  if (err) {
+	  	result.send('[]');
+		  
+	  }
+	  else {
+	  	result.send(JSON.stringify(rows));
+	  }
+	  
+	 
+	});
 })
 
-app.listen(3000);
+//app.listen(3000);
+
+
+
+app.listen(port, (err) => {  
+  if (err) {
+    return console.log('something bad happened', err)
+  }
+
+  console.log(`server is listening on ${port}`)
+})
