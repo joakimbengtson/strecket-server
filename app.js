@@ -9,11 +9,47 @@ var redirectLogs = require('yow').redirectLogs;
 var prefixLogs = require('yow').prefixLogs;
 var MySQL = require('mysql');
 
+
+
+
+var Worker = function() {
+	
+	
+	function doSomeWork() {
+		return new Promise(function(resolve, reject) {
+			console.log('working');
+			var error = undefined;
+			if (error)
+				reject();
+			else
+				resolve();
+		});
+	};
+	
+	function work() {
+
+		doSomeWork().then(function() {
+			
+			setTimeout(work, 1000);
+
+						
+		})
+		.catch(function(error ){
+			console.log(error);
+			setTimeout(work, 1000);
+			
+		});						
+	};
+
+	this.run = function() {
+		work();		
+	};
+};
+
 var Server = function(args) {
 
 	args = parseArgs();
-
-
+	
 	var mysql = MySQL.createConnection({
 	  host     : '104.155.92.17',
 	  user     : 'root',
@@ -46,6 +82,8 @@ var Server = function(args) {
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
 
+
+
 		app.get('/stocks', function (request, response) {
 
 			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
@@ -73,7 +111,12 @@ var Server = function(args) {
 
 	}
 
+	function work() {
+		var worker = new Worker();
+		worker.run();
+	};
 	function run() {
+
 
 		prefixLogs();
 
@@ -82,6 +125,7 @@ var Server = function(args) {
 		}
 
 		listen();
+		work();
 
 	}
 
