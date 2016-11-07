@@ -30,13 +30,13 @@ var Worker = function() {
 
 		doSomeWork().then(function() {
 			
-			setTimeout(work, 1000);
+			setTimeout(work, 10000);
 
 						
 		})
 		.catch(function(error ){
 			console.log(error);
-			setTimeout(work, 1000);
+			setTimeout(work, 10000);
 			
 		});						
 	};
@@ -82,8 +82,6 @@ var Server = function(args) {
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
 
-
-
 		app.get('/stocks', function (request, response) {
 
 			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
@@ -103,6 +101,20 @@ var Server = function(args) {
 			response.send('Hello World!')
 		})
 
+		app.post('/save', function (request, response) {
+
+		console.log(request.body);
+			var post  = request.body; //JSON.parse(request.body);
+
+			var query = mysql.query('INSERT INTO stocks SET ?', post, function(err, result) {
+
+				if (err)
+					response.status(404).json({error:err});
+				else
+					response.status(200).json({status:result});
+			});	
+			console.log('sql', query.sql);		
+		})
 
 		app.listen(app.get('port'), function() {
 			console.log("Node app is running on port " + app.get('port'));
