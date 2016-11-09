@@ -8,12 +8,9 @@ var bodyParser = require('body-parser');
 var redirectLogs = require('yow').redirectLogs;
 var prefixLogs = require('yow').prefixLogs;
 var MySQL = require('mysql');
-
-
-
+var yahooFinance = require('yahoo-finance');
 
 var Worker = function() {
-	
 	
 	function doSomeWork() {
 		return new Promise(function(resolve, reject) {
@@ -29,6 +26,29 @@ var Worker = function() {
 	function work() {
 
 		doSomeWork().then(function() {
+			
+			/*
+			yahooFinance.snapshot({
+			  symbols: ['AAPL','TSLA'],
+			  fields: ['n', 'l1']  // ex: ['s', 'n', 'd1', 'l1', 'y', 'r'] 
+			}, function (err, snapshot) {
+				if (err)
+					console.log(err);
+				else
+					console.log(snapshot);
+			  
+			  {
+			    symbol: 'AAPL',
+			    name: 'Apple Inc.',
+			    lastTradeDate: '11/15/2013',
+			    lastTradePriceOnly: '524.88',
+			    dividendYield: '2.23',
+			    peRatio: '13.29'
+			  }
+			  
+			  
+			});*/
+			
 			
 			setTimeout(work, 10000);
 
@@ -58,6 +78,7 @@ var Server = function(args) {
 	});
 
 	mysql.connect();
+	
 
 	function parseArgs() {
 		var commander = require('commander');
@@ -77,6 +98,8 @@ var Server = function(args) {
 	}
 
 	function listen() {
+		var tickerCheckList = [];
+		
 		app.set('port', (args.port || 3000));
 		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }))
 		app.use(bodyParser.json({limit: '50mb'}));
@@ -85,35 +108,46 @@ var Server = function(args) {
 		app.get('/stocks', function (request, response) {
 
 			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
-			  if (error) {
-				  response.status(200).json([]);
-
-			  }
-			  else {
-				  response.status(200).json(rows);
-			  }
-
-
+				if (error) {
+					response.status(200).json([]);
+				}
+				else {
+					console.log(JSON.stringify(rows));
+					
+					for (var i = 0; i < rows.length; i++) {
+						tickerCheckList[i] = rows[i].ticker;	
+					};					
+					
+					var tickers = JSON.stringify(tickerCheckList);
+					
+					console.log(tickers);
+															
+					yahooFinance.snapshot({
+					  symbols: tickers,// Detta fungerar ['AAPL','KOL'],
+					  fields: ['l1']
+					}, function (err, snapshot) {
+						if (err)
+							console.log(err);
+						else
+							console.log(snapshot);
+					});
+					
+					response.status(200).json(rows);
+				}
 			});
-		})
-
-		app.get('/', function (request, response) {
-			response.send('Hello World!')
 		})
 
 		app.post('/save', function (request, response) {
 
-		console.log(request.body);
-			var post  = request.body; //JSON.parse(request.body);
+			var post  = request.body;
 
-			var query = mysql.query('INSERT INTO stocks SET ?', post, function(err, result) {
+			var query = mysql.query('INSERT INTO aktier SET ?', post, function(err, result) {
 
 				if (err)
 					response.status(404).json({error:err});
 				else
 					response.status(200).json({status:result});
 			});	
-			console.log('sql', query.sql);		
 		})
 
 		app.listen(app.get('port'), function() {
@@ -127,6 +161,7 @@ var Server = function(args) {
 		var worker = new Worker();
 		worker.run();
 	};
+	
 	function run() {
 
 
