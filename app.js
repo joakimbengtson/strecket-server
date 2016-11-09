@@ -117,22 +117,25 @@ var Server = function(args) {
 					for (var i = 0; i < rows.length; i++) {
 						tickerCheckList[i] = rows[i].ticker;	
 					};					
-					
-					var tickers = JSON.stringify(tickerCheckList);
-					
-					console.log(tickers);
 															
 					yahooFinance.snapshot({
-					  symbols: tickers,// Detta fungerar ['AAPL','KOL'],
+					  symbols: tickerCheckList,
 					  fields: ['l1']
 					}, function (err, snapshot) {
-						if (err)
-							console.log(err);
-						else
+						if (err) {
+							console.log(err);	
+							response.status(404).json({error:err});						
+						}
+						else {
 							console.log(snapshot);
+							for (var i = 0; i < Object.keys(snapshot).length; i++) {
+								rows[i].senaste = snapshot[i].lastTradePriceOnly;
+							}
+							console.log(JSON.stringify(rows));							
+							response.status(200).json(rows);							
+						}
 					});
 					
-					response.status(200).json(rows);
 				}
 			});
 		})
