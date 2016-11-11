@@ -211,6 +211,7 @@ var Server = function(args) {
 		app.use(cors());
 
 
+		//
 		// Returnberar alla aktier med aktuell kurs och utfall i % mot köp
 		app.get('/stocks', function (request, response) {
 
@@ -253,12 +254,29 @@ var Server = function(args) {
 		})
 		
 
+		//
 		// Sparar ny aktie
 		app.post('/save', function (request, response) {
 
 			var post  = request.body;
 
 			var query = mysql.query('INSERT INTO aktier SET ?', post, function(err, result) {
+
+				if (err)
+					response.status(404).json({error:err});
+				else
+					response.status(200).json({status:result});
+			});	
+		})
+
+
+		//
+		// Raderar aktie
+		app.post('/delete', function (request, response) {
+
+			var id  = request.body;
+
+			var query = mysql.query('DELETE FROM aktier WHERE id=?', id, function(err, result) {
 
 				if (err)
 					response.status(404).json({error:err});
