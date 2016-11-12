@@ -30,6 +30,7 @@ var Worker = function(mysql) {
 		});																						
 	};
 	
+	
 	function doSomeWork() {
 		var tickerCheckList = [];		
 		
@@ -41,68 +42,67 @@ var Worker = function(mysql) {
 				}
 				else {
 					
-					// Bygg ['MSFT','GOOG', osv...]
-					for (var i = 0; i < rows.length; i++) {
-						tickerCheckList[i] = rows[i].ticker;	
-					};					
-															
-					yahooFinance.snapshot({
-					  symbols: tickerCheckList,
-					  fields: ['l1']
-					}, function (err, snapshot) {
-						if (err) {
-							console.log(err);	
-						}
-						else {
-							// Kolla aktuell kurs på alla aktier i tickerChecklist
-							var percentage;
-							
-							for (var i = 0; i < Object.keys(snapshot).length; i++) {								
-
-								percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly));
-								
-								if (rows[i].flyger) {
-									// Vi flyger, kolla Kursdiff > släpande stop loss?
-									if (1 - (snapshot[i].lastTradePriceOnly / rows[i].maxkurs) > _trailing_stop_loss) {
-										alarm(rows[i].id);
-									}
-									
-								}
-								else {
-									// Vi flyger inte, kolla Kursdiff > stop loss?
-									if (1 - (snapshot[i].lastTradePriceOnly / rows[i].kurs) > _stop_loss) {
-										alarm(rows[i].id);
-									}
-									
-									// Flyger vi? I så fall sätt flyger = sant
-									if (1 - (rows[i].kurs / snapshot[i].lastTradePriceOnly) > _trailing_stop_loss) {
-										var query = mysql.query('UPDATE aktier SET flyger=? WHERE id=?', [1, rows[i].id], function(err, result) {
-	
-											if (err)  // MEG
-												console.log(err);
-//											else
-//												response.status(200).json({status:result});
-										});																				
-									}
-									
-								}
-								
-								// Ny maxkurs?
-								if (snapshot[i].lastTradePriceOnly > rows[i].maxkurs) {
-									var query = mysql.query('UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot[i].lastTradePriceOnly, rows[i].id], function(err, result) {
-
-										if (err)  // MEG
-											console.log(err);
-//										else
-//											response.status(200).json({status:result});
-									});										
-								}								
-								
+					if (rows.length > 0) {
+						// Bygg ['MSFT','GOOG', osv...]
+						for (var i = 0; i < rows.length; i++) {
+							tickerCheckList[i] = rows[i].ticker;	
+						};					
+																
+						yahooFinance.snapshot({
+						  symbols: tickerCheckList,
+						  fields: ['l1']
+						}, function (err, snapshot) {
+							if (err) {
+								console.log(err);	
 							}
-
-						}
-					});
-					
+							else {
+								// Kolla aktuell kurs på alla aktier i tickerChecklist
+								var percentage;
+								
+								for (var i = 0; i < Object.keys(snapshot).length; i++) {								
+	
+									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly));
+									
+									if (rows[i].flyger) {
+										// Vi flyger, kolla Kursdiff > släpande stop loss?
+										if (1 - (snapshot[i].lastTradePriceOnly / rows[i].maxkurs) > _trailing_stop_loss) {
+											alarm(rows[i].id);
+										}
+										
+									}
+									else {
+										// Vi flyger inte, kolla Kursdiff > stop loss?
+										if (1 - (snapshot[i].lastTradePriceOnly / rows[i].kurs) > _stop_loss) {
+											alarm(rows[i].id);
+										}
+										
+										// Flyger vi? I så fall sätt flyger = sant
+										if (1 - (rows[i].kurs / snapshot[i].lastTradePriceOnly) > _trailing_stop_loss) {
+											var query = mysql.query('UPDATE aktier SET flyger=? WHERE id=?', [1, rows[i].id], function(err, result) {
+		
+												if (err)  // MEG
+													console.log(err);
+	//											else
+	//												response.status(200).json({status:result});
+											});																				
+										}
+										
+									}
+									
+									// Ny maxkurs?
+									if (snapshot[i].lastTradePriceOnly > rows[i].maxkurs) {
+										var query = mysql.query('UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot[i].lastTradePriceOnly, rows[i].id], function(err, result) {
+	
+											if (err)
+												console.log(err);
+										});										
+									}								
+									
+								}
+	
+							}
+						});
+					}
 				}
 			});
 			
@@ -110,7 +110,7 @@ var Worker = function(mysql) {
 			
 			var error = undefined; // MEG
 			if (error)
-				reject();
+				reject(error);
 			else
 				resolve();
 		});
@@ -212,44 +212,47 @@ var Server = function(args) {
 
 
 		//
-		// Returnberar alla aktier med aktuell kurs och utfall i % mot köp
+		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
 		app.get('/stocks', function (request, response) {
 
 			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
-				if (error) {
-					response.status(200).json([]);
-				}
-				else {
-					console.log(JSON.stringify(rows));
-					
-					for (var i = 0; i < rows.length; i++) {
-						tickerCheckList[i] = rows[i].ticker;	
-					};					
-															
-					yahooFinance.snapshot({
-					  symbols: tickerCheckList,
-					  fields: ['l1']
-					}, function (err, snapshot) {
-						if (err) {
-							console.log(err);	
-							response.status(404).json({error:err});						
-						}
-						else {
-							var percentage;
-							
-							for (var i = 0; i < Object.keys(snapshot).length; i++) {
-								rows[i].senaste = snapshot[i].lastTradePriceOnly;
-								
-								// Beräkna % med 2 decimaler
-								percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
-								rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+				if (rows.length > 0) {
+					if (error) {
+						response.status(200).json([]);
+					}
+					else {
+						console.log(JSON.stringify(rows));
+						
+						for (var i = 0; i < rows.length; i++) {
+							tickerCheckList[i] = rows[i].ticker;	
+						};					
+																
+						yahooFinance.snapshot({
+						  symbols: tickerCheckList,
+						  fields: ['l1']
+						}, function (err, snapshot) {
+							if (err) {
+								console.log(err);	
+								response.status(404).json({error:err});						
 							}
-							//console.log(JSON.stringify(rows));							
-							response.status(200).json(rows);							
-						}
-					});
-					
+							else {
+								var percentage;
+								
+								for (var i = 0; i < Object.keys(snapshot).length; i++) {
+									rows[i].senaste = snapshot[i].lastTradePriceOnly;
+									
+									// Beräkna % med 2 decimaler
+									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
+									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+								}
+								//console.log(JSON.stringify(rows));							
+								response.status(200).json(rows);							
+							}
+						});
+					}	
 				}
+				else
+					response.status(200).json(rows);
 			});
 		})
 		
@@ -272,10 +275,12 @@ var Server = function(args) {
 
 		//
 		// Raderar aktie
-		app.post('/delete', function (request, response) {
+		app.delete('/stocks/:id', function (request, response) {
 
-			var id  = request.body;
+			var id  = request.params.id;
 
+			console.log('id', id);
+			
 			var query = mysql.query('DELETE FROM aktier WHERE id=?', id, function(err, result) {
 
 				if (err)
