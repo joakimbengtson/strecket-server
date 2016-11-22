@@ -21,29 +21,29 @@ var mysql;
 var Worker = function(mysql) {
 	
 	function alarm(id) {
-		var query = mysql.query('UPDATE aktier SET larm=? WHERE id=?', [1, id], function(err, result) {
-		
-			if (err)  // MEG
-				console.log(err);
-//			else
-//				response.status(200).json({status:result});
+		var query = mysql.query('UPDATE aktier SET larm=? WHERE id=?', [1, id], function(error, result) {
+			if (error)
+				console.log(error);
 		});																						
 	};
 	
 	
 	function doSomeWork() {
-		var tickerCheckList = [];		
-		
+		var tickerCheckList = [];
+		var err = undefined;
+				
 		return new Promise(function(resolve, reject) {
 			
-			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {  // MEG läser kurser varje work, bättre i internminne?
+			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
 				if (error) {
 					console.log(error);
+					err = error;
 				}
 				else {
 					
 					if (rows.length > 0) {
-						// Bygg ['MSFT','GOOG', osv...]
+						
+						// Bygg array med tickers ['MSFT','GOOG', osv...]
 						for (var i = 0; i < rows.length; i++) {
 							tickerCheckList[i] = rows[i].ticker;	
 						};					
@@ -51,9 +51,10 @@ var Worker = function(mysql) {
 						yahooFinance.snapshot({
 						  symbols: tickerCheckList,
 						  fields: ['l1']
-						}, function (err, snapshot) {
-							if (err) {
-								console.log(err);	
+						}, function (error, snapshot) {
+							if (error) {
+								console.log(error);	
+								err = error;
 							}
 							else {
 								// Kolla aktuell kurs på alla aktier i tickerChecklist
@@ -64,6 +65,7 @@ var Worker = function(mysql) {
 									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly));
 									
 									if (rows[i].flyger) {
+										
 										// Vi flyger, kolla Kursdiff > släpande stop loss?
 										if (1 - (snapshot[i].lastTradePriceOnly / rows[i].maxkurs) > _trailing_stop_loss) {
 											alarm(rows[i].id);
@@ -71,6 +73,7 @@ var Worker = function(mysql) {
 										
 									}
 									else {
+										
 										// Vi flyger inte, kolla Kursdiff > stop loss?
 										if (1 - (snapshot[i].lastTradePriceOnly / rows[i].kurs) > _stop_loss) {
 											alarm(rows[i].id);
@@ -78,12 +81,11 @@ var Worker = function(mysql) {
 										
 										// Flyger vi? I så fall sätt flyger = sant
 										if (1 - (rows[i].kurs / snapshot[i].lastTradePriceOnly) > _trailing_stop_loss) {
-											var query = mysql.query('UPDATE aktier SET flyger=? WHERE id=?', [1, rows[i].id], function(err, result) {
-		
-												if (err)  // MEG
-													console.log(err);
-	//											else
-	//												response.status(200).json({status:result});
+											var query = mysql.query('UPDATE aktier SET flyger=? WHERE id=?', [1, rows[i].id], function(error, result) {
+												if (error) {
+													console.log(error);
+													err = error;
+												}
 											});																				
 										}
 										
@@ -91,10 +93,11 @@ var Worker = function(mysql) {
 									
 									// Ny maxkurs?
 									if (snapshot[i].lastTradePriceOnly > rows[i].maxkurs) {
-										var query = mysql.query('UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot[i].lastTradePriceOnly, rows[i].id], function(err, result) {
-	
-											if (err)
-												console.log(err);
+										var query = mysql.query('UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot[i].lastTradePriceOnly, rows[i].id], function(error, result) {
+											if (error) {
+												console.log(error);
+												err = error;
+											}
 										});										
 									}								
 									
@@ -106,52 +109,27 @@ var Worker = function(mysql) {
 				}
 			});
 			
-			console.log('working');
+			// console.log('working');
 			
-			var error = undefined; // MEG
-			if (error)
-				reject(error);
+			if (err)
+				reject(err);
 			else
 				resolve();
+							
 		});
 	};
 	
 	function work() {
 
-		doSomeWork().then(function() {
-			
-			/*
-			yahooFinance.snapshot({
-			  symbols: ['AAPL','TSLA'],
-			  fields: ['n', 'l1']  // ex: ['s', 'n', 'd1', 'l1', 'y', 'r'] 
-			}, function (err, snapshot) {
-				if (err)
-					console.log(err);
-				else
-					console.log(snapshot);
-			  
-			  {
-			    symbol: 'AAPL',
-			    name: 'Apple Inc.',
-			    lastTradeDate: '11/15/2013',
-			    lastTradePriceOnly: '524.88',
-			    dividendYield: '2.23',
-			    peRatio: '13.29'
-			  }
-			  
-			  
-			});*/
-			
-			
-			setTimeout(work, _checkIntervalInSeconds*1000);
-
-						
+		doSomeWork().then(function() {			
+			setTimeout(work, _checkIntervalInSeconds * 1000);
 		})
-		.catch(function(error ){
+		
+		.catch(function(error) {
 			console.log(error);
-			setTimeout(work, _checkIntervalInSeconds*1000);
-			
-		});						
+			setTimeout(work, _checkIntervalInSeconds * 1000);
+		});
+								
 	};
 
 	this.run = function() {
@@ -176,7 +154,7 @@ var Server = function(args) {
 	// Get stops
 	mysql.query('SELECT * FROM settings LIMIT 1', function(error, rows, fields) {
 		if (error) {
-			response.status(200).json([]); // MEG
+			console.log(error);
 		}
 		else {
 			_stop_loss = rows[0].stop_loss;
@@ -211,7 +189,7 @@ var Server = function(args) {
 		app.use(cors());
 
 
-		//
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
 		app.get('/stocks', function (request, response) {
 
@@ -221,7 +199,7 @@ var Server = function(args) {
 						response.status(200).json([]);
 					}
 					else {
-						console.log(JSON.stringify(rows));
+						//console.log(JSON.stringify(rows));
 						
 						for (var i = 0; i < rows.length; i++) {
 							tickerCheckList[i] = rows[i].ticker;	
@@ -245,19 +223,18 @@ var Server = function(args) {
 									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
 									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 								}
-								//console.log(JSON.stringify(rows));							
 								response.status(200).json(rows);							
 							}
 						});
 					}	
 				}
 				else
-					response.status(200).json(rows);
+					response.status(200).json([]);
 			});
 		})
 		
 
-		//
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Sparar ny aktie
 		app.post('/save', function (request, response) {
 
@@ -273,7 +250,7 @@ var Server = function(args) {
 		})
 
 
-		//
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Raderar aktie
 		app.delete('/stocks/:id', function (request, response) {
 
