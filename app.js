@@ -174,7 +174,7 @@ var Server = function(args) {
 		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }))
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
-
+		
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
