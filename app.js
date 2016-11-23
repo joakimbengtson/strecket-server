@@ -18,6 +18,7 @@ const _checkIntervalInSeconds = 5;
 
 var mysql;
 
+/*
 var Worker = function(mysql) {
 	
 	function alarm(id) {
@@ -118,25 +119,12 @@ var Worker = function(mysql) {
 							
 		});
 	};
-	
-	function work() {
-
-		doSomeWork().then(function() {			
-			setTimeout(work, _checkIntervalInSeconds * 1000);
-		})
-		
-		.catch(function(error) {
-			console.log(error);
-			setTimeout(work, _checkIntervalInSeconds * 1000);
-		});
-								
-	};
 
 	this.run = function() {
 		work();		
 	};
 	
-};
+};*/
 
 var Server = function(args) {
 
@@ -150,7 +138,7 @@ var Server = function(args) {
 	});
 
 	mysql.connect();
-	
+	/*
 	// Get stops
 	mysql.query('SELECT * FROM settings LIMIT 1', function(error, rows, fields) {
 		if (error) {
@@ -162,7 +150,7 @@ var Server = function(args) {
 			_lavish_trailing_stop_loss = rows[0].lavish_trailing_stop_loss;			
 		}
 	});
-
+*/
 	function parseArgs() {
 		var commander = require('commander');
 
@@ -181,7 +169,6 @@ var Server = function(args) {
 	}
 
 	function listen() {
-		var tickerCheckList = [];
 		
 		app.set('port', (args.port || 3000));
 		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }))
@@ -200,6 +187,8 @@ var Server = function(args) {
 					}
 					else {
 						//console.log(JSON.stringify(rows));
+						var tickerCheckList = [];
+
 						
 						for (var i = 0; i < rows.length; i++) {
 							tickerCheckList[i] = rows[i].ticker;	
@@ -272,13 +261,15 @@ var Server = function(args) {
 			console.log("Node app is running on port " + app.get('port'));
 		});
 
+	};
 
-	}
 
 	function work() {
+		var Worker = require('./worker.js');
 		var worker = new Worker(mysql);
 		worker.run();
-	};
+	};	
+	
 	
 	function run() {
 

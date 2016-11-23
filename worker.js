@@ -6,7 +6,7 @@ var Worker = module.exports = function() {
 	var _mysql = undefined;
 
 	// Dina variabler
-	var _checkIntervalInSeconds = 5;
+	var _checkIntervalInSeconds = 10;
 	var _stop_loss = 0.05;
 	var _trailing_stop_loss = 0.07;
 	var _lavish_trailing_stop_loss = 0.15;
