@@ -10,9 +10,10 @@ var Worker = module.exports = function() {
 	var _stop_loss = 0.05;
 	var _trailing_stop_loss = 0.07;
 	var _lavish_trailing_stop_loss = 0.15;
-
+	
 	function debug() {
-		console.log.apply(null, arguments);
+		if (false)
+			console.log.apply(null, arguments);
 	};
 
 	// Gör om en mysql-fråga till en promise för att slippa callbacks/results/errors
@@ -57,29 +58,57 @@ var Worker = module.exports = function() {
 		});
 
 	}
+	
+	// Skickar sms till jbn
+	function sendSMS(txtMsg) {
+		return new Promise(function(resolve, reject) {
+
+			var client = require('twilio')();
+			 
+			client.sendSms({
+				    to: '+46703489493',
+				    from:'+46769447443',
+				    body: txtMsg
+			}, function(error, message) {
+			    if (error)
+					reject(error);				    
+				else
+					resolve();
+			});				
+		});		
+	}
 
 	// Hämtar ett snapshot för en aktie från Yahoo (snapshot blir som parameter i .then())
 	function getYahooSnapshot(options) {
 
 		return new Promise(function(resolve, reject) {
-
+			
 			var yahoo = require('yahoo-finance');
-
+			
 			yahoo.snapshot(options, function (error, snapshot) {
-				if (error)
+
+				try {					
+					if (error)
+						reject(error);
+					else
+						resolve(snapshot);
+				}
+				catch (error) {
 					reject(error);
-				else
-					resolve(snapshot);
+				}
+						
 			});
+			
 		});
-	};
-
-
+	}
+	
+	
 	// Hämtar inställningar
 	function getSettings() {
 
 		return new Promise(function(resolve, reject) {
 			runQuery('SELECT * FROM settings LIMIT 1').then(function(rows) {
+				
 				// Returnera svaret, det kommer att bli i formen
 				// {id:xxx, stop_loss:xxx, trailing_stop_loss:xxx, lavish_trailing_stop_loss: xxx}
 				resolve(rows[0]);
@@ -89,6 +118,7 @@ var Worker = module.exports = function() {
 			});
 		});
 	};
+
 
 	// Hämtar alla aktier (returneras i samma format som i databasen)
 	function getStocks() {
@@ -102,40 +132,61 @@ var Worker = module.exports = function() {
 		});
 	};
 
+
 	// Anropas för varje aktie i doSomeWork()
 	function doSomeWorkOnStock(stock) {
 
 		return new Promise(function(resolve, reject) {
 			getYahooSnapshot({symbol:stock.ticker, fields:['l1']}).then(function(snapshot) {
 
-				// Här kommer din algoritm med i bilden...
-
-				var percentage = (1 - (stock.kurs/snapshot.lastTradePriceOnly));
+				// Nuvarande utfall mot köpkurs
+				var percentage = (1 - (stock.kurs/snapshot.lastTradePriceOnly)) * 100;
+				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+				
+				debug(stock.namn, percentage, stock.kurs, snapshot.lastTradePriceOnly);
 
 				// En vektor med det som ska göras för varje aktie
 				var promises = [];
 
+				// Om vi flyger kollar vi nuvarande kurs mot släpande stop loss
 				if (stock.flyger) {
+					
+					debug(stock.namn, "flyger");
 
 					// Vi flyger, kolla Kursdiff > släpande stop loss?
-					if (1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > _trailing_stop_loss) {
-						// Lägg till ett 'alarm' i kön, att anropa .bind() lägger ju till parametrar vid anropet
-						// Och vektor.push() adderar ett element på slutet av vektorn.
+					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > _trailing_stop_loss) {
+						
+						debug(stock.namn, "under släpande stop loss, larma");
+
+						// Larma med sms och uppdatera databasen med larmflagga
+						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
 						promises.push(runQuery.bind(_this, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 					}
 
 				}
 				else {
 
-					// Vi flyger inte, kolla Kursdiff > stop loss?
-					if (1 - (snapshot.lastTradePriceOnly / stock.kurs) > _stop_loss) {
-						// Lägg till en query till...
+					debug(stock.namn, "flyger inte");
+
+					// Om vi inte flyger, kolla Kursdiff > stop loss?
+					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.kurs) > _stop_loss) {
+						
+						debug(stock.namn, "under stop loss, larma");
+
+						// Larma med sms och uppdatera databasen med larmflagga
+						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under stop-loss. (" + percentage + "%)."));						
 						promises.push(runQuery.bind(_this, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 					}
 
+					debug(stock.namn, 1 - (stock.kurs / snapshot.lastTradePriceOnly), _trailing_stop_loss);
+
 					// Flyger vi? I så fall sätt flyger = sant
 					if (1 - (stock.kurs / snapshot.lastTradePriceOnly) > _trailing_stop_loss) {
-						// Och en till...
+
+						debug(stock.namn, "flyger nu, meddela och sätt flyger=true");
+						
+						// Meddela med sms och uppdatera databasen med flygerflagga
+						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " flyger!! (" + percentage + "%)."));
 						promises.push(runQuery.bind(_this, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
 					}
 
@@ -159,8 +210,8 @@ var Worker = module.exports = function() {
 			.catch(function(error) {
 				// Om något misslyckas, gör så att denna metod också misslyckas
 				reject(error);
-
 			});
+			
 		});
 
 	}
@@ -177,9 +228,11 @@ var Worker = module.exports = function() {
 			getSettings().then(function(settings) {
 
 				// Spara resultatet som kom tillbaka från inställningarna
-				_stop_loss = settings._stop_loss;
-				_trailing_stop_loss = settings._trailing_stop_loss;
-				_lavish_trailing_stop_loss = settings._lavish_trailing_stop_loss;
+				_stop_loss = settings.stop_loss;
+				_trailing_stop_loss = settings.trailing_stop_loss;
+				_lavish_trailing_stop_loss = settings.lavish_trailing_stop_loss;
+				
+				debug(_stop_loss, _trailing_stop_loss, _lavish_trailing_stop_loss);
 
 				// Hämta hela aktie-tabellen
 				// Visst, ett anrop till...
@@ -193,20 +246,22 @@ var Worker = module.exports = function() {
 						// Att anropa xxx.bind() gör att parametrar automatiskt skickas till funktionen när
 						// den anropas även utan parametrar (null i detta fall är värdet av 'this')
 						promises.push(doSomeWorkOnStock.bind(_this, stock));
-					});
+					}); 
 
 					// runPromises() kör alla promises sekventiellt, antingen lyckas alla eller så blir det ett fel
 					runPromises(promises).then(function() {
 						resolve();
 					})
 					.catch(function(error) {
-						// Blir det något fel någonstans, hamnar vi här
 						reject(error);
 					});
 
+				})
+				.catch(function(error) {
+					reject(error);
 				});
+				
 			})
-
 			.catch(function(error) {
 				reject(error);
 			});
@@ -222,9 +277,9 @@ var Worker = module.exports = function() {
 		})
 
 		.catch(function(error) {
-			// Om något blev fel, över huvudtaget (!), så skriv ut hela stacken till konsollen,
+			// Om något blev fel, överhuvudtaget (!), så skriv ut hela stacken till konsollen,
 			// med radnummer och allt...
-			debug(error.stack);
+			console.log(error.stack);
 
 			// Och börja om igen
 			setTimeout(work, _checkIntervalInSeconds * 1000);

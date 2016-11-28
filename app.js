@@ -10,121 +10,9 @@ var prefixLogs = require('yow').prefixLogs;
 var MySQL = require('mysql');
 var yahooFinance = require('yahoo-finance');
 
-var _stop_loss = 0.05;
-var _trailing_stop_loss = 0.07;
-var _lavish_trailing_stop_loss = 0.15;
-
-const _checkIntervalInSeconds = 5;
 
 var mysql;
 
-/*
-var Worker = function(mysql) {
-	
-	function alarm(id) {
-		var query = mysql.query('UPDATE aktier SET larm=? WHERE id=?', [1, id], function(error, result) {
-			if (error)
-				console.log(error);
-		});																						
-	};
-	
-	
-	function doSomeWork() {
-		var tickerCheckList = [];
-		var err = undefined;
-				
-		return new Promise(function(resolve, reject) {
-			
-			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
-				if (error) {
-					console.log(error);
-					err = error;
-				}
-				else {
-					
-					if (rows.length > 0) {
-						
-						// Bygg array med tickers ['MSFT','GOOG', osv...]
-						for (var i = 0; i < rows.length; i++) {
-							tickerCheckList[i] = rows[i].ticker;	
-						};					
-																
-						yahooFinance.snapshot({
-						  symbols: tickerCheckList,
-						  fields: ['l1']
-						}, function (error, snapshot) {
-							if (error) {
-								console.log(error);	
-								err = error;
-							}
-							else {
-								// Kolla aktuell kurs på alla aktier i tickerChecklist
-								var percentage;
-								
-								for (var i = 0; i < Object.keys(snapshot).length; i++) {								
-	
-									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly));
-									
-									if (rows[i].flyger) {
-										
-										// Vi flyger, kolla Kursdiff > släpande stop loss?
-										if (1 - (snapshot[i].lastTradePriceOnly / rows[i].maxkurs) > _trailing_stop_loss) {
-											alarm(rows[i].id);
-										}
-										
-									}
-									else {
-										
-										// Vi flyger inte, kolla Kursdiff > stop loss?
-										if (1 - (snapshot[i].lastTradePriceOnly / rows[i].kurs) > _stop_loss) {
-											alarm(rows[i].id);
-										}
-										
-										// Flyger vi? I så fall sätt flyger = sant
-										if (1 - (rows[i].kurs / snapshot[i].lastTradePriceOnly) > _trailing_stop_loss) {
-											var query = mysql.query('UPDATE aktier SET flyger=? WHERE id=?', [1, rows[i].id], function(error, result) {
-												if (error) {
-													console.log(error);
-													err = error;
-												}
-											});																				
-										}
-										
-									}
-									
-									// Ny maxkurs?
-									if (snapshot[i].lastTradePriceOnly > rows[i].maxkurs) {
-										var query = mysql.query('UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot[i].lastTradePriceOnly, rows[i].id], function(error, result) {
-											if (error) {
-												console.log(error);
-												err = error;
-											}
-										});										
-									}								
-									
-								}
-	
-							}
-						});
-					}
-				}
-			});
-			
-			// console.log('working');
-			
-			if (err)
-				reject(err);
-			else
-				resolve();
-							
-		});
-	};
-
-	this.run = function() {
-		work();		
-	};
-	
-};*/
 
 var Server = function(args) {
 
@@ -138,19 +26,7 @@ var Server = function(args) {
 	});
 
 	mysql.connect();
-	/*
-	// Get stops
-	mysql.query('SELECT * FROM settings LIMIT 1', function(error, rows, fields) {
-		if (error) {
-			console.log(error);
-		}
-		else {
-			_stop_loss = rows[0].stop_loss;
-			_trailing_stop_loss = rows[0].trailing_stop_loss;
-			_lavish_trailing_stop_loss = rows[0].lavish_trailing_stop_loss;			
-		}
-	});
-*/
+
 	function parseArgs() {
 		var commander = require('commander');
 
@@ -171,7 +47,7 @@ var Server = function(args) {
 	function listen() {
 		
 		app.set('port', (args.port || 3000));
-		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }))
+		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }));
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
 		
@@ -204,14 +80,19 @@ var Server = function(args) {
 							}
 							else {
 								var percentage;
+								var stoplossStr;
 								
 								for (var i = 0; i < Object.keys(snapshot).length; i++) {
 									rows[i].senaste = snapshot[i].lastTradePriceOnly;
 									
 									// Beräkna % med 2 decimaler
 									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
-									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
 								}
+								var a,b,c,d;
+								stoplossStr = "Stop loss: " + a + " Släpande stop loss: " + b + " Frikostig stop loss: " + c + " Frikostig nivå: " + d;
+								
+								rows.push({namn:stoplossStr, ticker:'xxx'});
 								response.status(200).json(rows);							
 							}
 						});
@@ -221,7 +102,7 @@ var Server = function(args) {
 					response.status(200).json([]);
 			});
 		})
-		
+
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Sparar ny aktie
@@ -245,7 +126,7 @@ var Server = function(args) {
 
 			var id  = request.params.id;
 
-			console.log('id', id);
+			console.log('Raderar id: ', id);
 			
 			var query = mysql.query('DELETE FROM aktier WHERE id=?', id, function(err, result) {
 
@@ -264,15 +145,15 @@ var Server = function(args) {
 	};
 
 
-	function work() {
+	function work() {		
 		var Worker = require('./worker.js');
 		var worker = new Worker(mysql);
+		
 		worker.run();
-	};	
+	}
 	
 	
 	function run() {
-
 
 		prefixLogs();
 
