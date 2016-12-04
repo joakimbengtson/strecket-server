@@ -10,6 +10,7 @@ var prefixLogs = require('yow').prefixLogs;
 var MySQL = require('mysql');
 var yahooFinance = require('yahoo-finance');
 
+var config = require('./config.js');
 
 var mysql;
 
@@ -43,6 +44,30 @@ var Server = function(args) {
 
 		return args;
 	}
+	
+	function getYahooSnapshot(options) {
+
+		return new Promise(function(resolve, reject) {
+			
+			var yahoo = require('yahoo-finance');
+			
+			yahoo.snapshot(options, function (error, snapshot) {
+
+				try {					
+					if (error)
+						reject(error);
+					else
+						resolve(snapshot);
+				}
+				catch (error) {
+					reject(error);
+				}
+						
+			});
+			
+		});
+	}
+	
 
 	function listen() {
 		
@@ -51,7 +76,21 @@ var Server = function(args) {
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
 		
+		
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Kollar om ticker finns, i så fall företagsnamn tillbaks
+		app.get('/company/:ticker', function (request, response) {
 
+			var ticker = request.params.ticker;
+			getYahooSnapshot({symbol:ticker, fields:['n']}).then(function(snapshot) {
+				response.status(200).json(snapshot.name);
+			})
+			.catch(function(error) {
+				response.status(200).json([]);
+			});
+
+		})
+		/*
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
 		app.get('/stocks', function (request, response) {
@@ -89,8 +128,8 @@ var Server = function(args) {
 									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
 									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
 								}
-								var a,b,c,d;
-								stoplossStr = "Stop loss: " + a + " Släpande stop loss: " + b + " Frikostig stop loss: " + c + " Frikostig nivå: " + d;
+																
+								stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
 								
 								rows.push({namn:stoplossStr, ticker:'xxx'});
 								response.status(200).json(rows);							
@@ -102,6 +141,58 @@ var Server = function(args) {
 					response.status(200).json([]);
 			});
 		})
+			*/	
+		
+
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
+		app.get('/stocks', function (request, response) {
+
+			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
+				if (!error) {
+					if (rows.length > 0) {
+						var tickerCheckList = [];
+						
+						for (var i = 0; i < rows.length; i++) {
+							tickerCheckList[i] = rows[i].ticker;	
+						};					
+																
+						yahooFinance.snapshot({
+						  symbols: tickerCheckList,
+						  fields: ['l1']
+						}, function (err, snapshot) {
+							if (err) {
+								console.log(err);	
+								response.status(404).json({error:err});						
+							}
+							else {
+								var percentage;
+								var stoplossStr;
+								
+								for (var i = 0; i < Object.keys(snapshot).length; i++) {
+									rows[i].senaste = snapshot[i].lastTradePriceOnly;
+									
+									// Beräkna % med 2 decimaler
+									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
+									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
+								}
+																
+								stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
+								
+								rows.push({namn:stoplossStr, ticker:'xxx'});
+								response.status(200).json(rows);							
+							}
+						});
+					}
+					else
+						response.status(200).json([]);
+				}
+				else {
+					console.log("Kunde inte hämta aktier: ", error);
+					response.status(200).json([]);					
+				}
+			});
+		})
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
@@ -110,12 +201,15 @@ var Server = function(args) {
 
 			var post  = request.body;
 
+			console.log("Sparar aktie: " + post);
+
 			var query = mysql.query('INSERT INTO aktier SET ?', post, function(err, result) {
 
 				if (err)
 					response.status(404).json({error:err});
-				else
-					response.status(200).json({status:result});
+				else {
+					response.status(200).json({status:result});					
+				}
 			});	
 		})
 
@@ -126,7 +220,7 @@ var Server = function(args) {
 
 			var id  = request.params.id;
 
-			console.log('Raderar id: ', id);
+			console.log('Raderar aktie: ', id);
 			
 			var query = mysql.query('DELETE FROM aktier WHERE id=?', id, function(err, result) {
 

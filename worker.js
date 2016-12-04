@@ -1,16 +1,11 @@
 
+var config = require('./config.js');
 
 var Worker = module.exports = function() {
 
 	var _this = this;
 	var _mysql = undefined;
 
-	// Dina variabler
-	var _checkIntervalInSeconds = 10;
-	var _stop_loss = 0.05;
-	var _trailing_stop_loss = 0.07;
-	var _lavish_trailing_stop_loss = 0.15;
-	
 	function debug() {
 		if (false)
 			console.log.apply(null, arguments);
@@ -154,9 +149,9 @@ var Worker = module.exports = function() {
 					debug(stock.namn, "flyger");
 
 					// Vi flyger, kolla Kursdiff > släpande stop loss?
-					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > _trailing_stop_loss) {
+					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > config.trailing_stop_loss) {
 						
-						debug(stock.namn, "under släpande stop loss, larma");
+						console.log(stock.namn, " under släpande stop loss, larma");
 
 						// Larma med sms och uppdatera databasen med larmflagga
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
@@ -169,21 +164,21 @@ var Worker = module.exports = function() {
 					debug(stock.namn, "flyger inte");
 
 					// Om vi inte flyger, kolla Kursdiff > stop loss?
-					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.kurs) > _stop_loss) {
+					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.kurs) > config.stop_loss) {
 						
-						debug(stock.namn, "under stop loss, larma");
+						console.log(stock.namn, " under stop loss, larma");
 
 						// Larma med sms och uppdatera databasen med larmflagga
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under stop-loss. (" + percentage + "%)."));						
 						promises.push(runQuery.bind(_this, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 					}
 
-					debug(stock.namn, 1 - (stock.kurs / snapshot.lastTradePriceOnly), _trailing_stop_loss);
+					debug(stock.namn, 1 - (stock.kurs / snapshot.lastTradePriceOnly), config.trailing_stop_loss);
 
 					// Flyger vi? I så fall sätt flyger = sant
-					if (1 - (stock.kurs / snapshot.lastTradePriceOnly) > _trailing_stop_loss) {
+					if (1 - (stock.kurs / snapshot.lastTradePriceOnly) > config.trailing_stop_loss) {
 
-						debug(stock.namn, "flyger nu, meddela och sätt flyger=true");
+						console.log(stock.namn, "flyger!, meddela och sätt flyger=true");
 						
 						// Meddela med sms och uppdatera databasen med flygerflagga
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " flyger!! (" + percentage + "%)."));
@@ -228,11 +223,12 @@ var Worker = module.exports = function() {
 			getSettings().then(function(settings) {
 
 				// Spara resultatet som kom tillbaka från inställningarna
-				_stop_loss = settings.stop_loss;
-				_trailing_stop_loss = settings.trailing_stop_loss;
-				_lavish_trailing_stop_loss = settings.lavish_trailing_stop_loss;
+				config.stop_loss = settings.stop_loss;
+				config.trailing_stop_loss = settings.trailing_stop_loss;
+				config.lavish_trailing_stop_loss = settings.lavish_trailing_stop_loss;
+				config.lavish_level = settings.lavish_level;
 				
-				debug(_stop_loss, _trailing_stop_loss, _lavish_trailing_stop_loss);
+				debug(config.checkIntervalInSeconds, config.stop_loss, config.trailing_stop_loss, config.lavish_trailing_stop_loss, config.lavish_level);
 
 				// Hämta hela aktie-tabellen
 				// Visst, ett anrop till...
@@ -273,7 +269,7 @@ var Worker = module.exports = function() {
 	function work() {
 
 		doSomeWork().then(function() {
-			setTimeout(work, _checkIntervalInSeconds * 1000);
+			setTimeout(work, config.checkIntervalInSeconds * 1000);
 		})
 
 		.catch(function(error) {
@@ -282,7 +278,7 @@ var Worker = module.exports = function() {
 			console.log(error.stack);
 
 			// Och börja om igen
-			setTimeout(work, _checkIntervalInSeconds * 1000);
+			setTimeout(work, config.checkIntervalInSeconds * 1000);
 		});
 
 	};
