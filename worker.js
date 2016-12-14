@@ -1,21 +1,19 @@
 
 var config = require('./config.js');
 
-var Worker = module.exports = function() {
-
+var Worker = module.exports = function(pool) {
 	var _this = this;
-	var _mysql = undefined;
 
 	function debug() {
-		if (false)
+		if (true)
 			console.log.apply(null, arguments);
 	};
 
 	// Gör om en mysql-fråga till en promise för att slippa callbacks/results/errors
-	function runQuery(sql, options) {
+	function runQuery(connection, sql, options) {
 
 		return new Promise(function(resolve, reject) {
-			var query = _mysql.query(sql, options, function(error, result) {
+			var query = connection.query(sql, options, function(error, result) {
 				if (error)
 					reject(error);
 				else
@@ -23,7 +21,7 @@ var Worker = module.exports = function() {
 			});
 
 			// Skriver ut frågan helt enkelt i klartext
-			debug(query.sql);
+			debug("Query: ", query.sql);
 
 		});
 
@@ -99,10 +97,10 @@ var Worker = module.exports = function() {
 	
 	
 	// Hämtar inställningar
-	function getSettings() {
+	function getSettings(connection) {
 
 		return new Promise(function(resolve, reject) {
-			runQuery('SELECT * FROM settings LIMIT 1').then(function(rows) {
+			runQuery(connection, 'SELECT * FROM settings LIMIT 1').then(function(rows) {
 				
 				// Returnera svaret, det kommer att bli i formen
 				// {id:xxx, stop_loss:xxx, trailing_stop_loss:xxx, lavish_trailing_stop_loss: xxx}
@@ -116,9 +114,9 @@ var Worker = module.exports = function() {
 
 
 	// Hämtar alla aktier (returneras i samma format som i databasen)
-	function getStocks() {
+	function getStocks(connection) {
 		return new Promise(function(resolve, reject) {
-			runQuery('SELECT * FROM aktier').then(function(rows) {
+			runQuery(connection, 'SELECT * FROM aktier WHERE såld=0').then(function(rows) {
 				resolve(rows);
 			})
 			.catch(function(error) {
@@ -129,7 +127,7 @@ var Worker = module.exports = function() {
 
 
 	// Anropas för varje aktie i doSomeWork()
-	function doSomeWorkOnStock(stock) {
+	function doSomeWorkOnStock(connection, stock) {
 
 		return new Promise(function(resolve, reject) {
 			getYahooSnapshot({symbol:stock.ticker, fields:['l1']}).then(function(snapshot) {
@@ -155,7 +153,7 @@ var Worker = module.exports = function() {
 
 						// Larma med sms och uppdatera databasen med larmflagga
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
-						promises.push(runQuery.bind(_this, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+						promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 					}
 
 				}
@@ -170,7 +168,7 @@ var Worker = module.exports = function() {
 
 						// Larma med sms och uppdatera databasen med larmflagga
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under stop-loss. (" + percentage + "%)."));						
-						promises.push(runQuery.bind(_this, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+						promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 					}
 
 					debug(stock.namn, 1 - (stock.kurs / snapshot.lastTradePriceOnly), config.trailing_stop_loss);
@@ -180,17 +178,19 @@ var Worker = module.exports = function() {
 
 						console.log(stock.namn, "flyger!, meddela och sätt flyger=true");
 						
-						// Meddela med sms och uppdatera databasen med flygerflagga
+						// Meddela med sms och uppdatera databasen med flyger=1
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " flyger!! (" + percentage + "%)."));
-						promises.push(runQuery.bind(_this, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
+						promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
 					}
 
 				}
 
+				debug("Senaste pris, max pris: ", snapshot.lastTradePriceOnly, stock.maxkurs);
+
 				// Ny maxkurs?
 				if (snapshot.lastTradePriceOnly > stock.maxkurs) {
-					// Ytterligare en!
-					promises.push(runQuery.bind(_this, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.lastTradePriceOnly, stock.id]));
+					console.log("Sätter ny maxkurs: ", snapshot.lastTradePriceOnly, stock.ticker);
+					promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.lastTradePriceOnly, stock.id]));
 				}
 
 				// Kör alla promises som ligger i kö sekventiellt
@@ -216,52 +216,65 @@ var Worker = module.exports = function() {
 
 
 		return new Promise(function(resolve, reject) {
+			
+			pool.getConnection(function(error, connection) {
 
-			// Hämta inställningar, börja sedan med jobbet
-			// Visst, ett extra anrop, men du kan ändra det i Sequel Pro
-			// när som helst och värdena slår igenom...
-			getSettings().then(function(settings) {
+				if (!error) {
 
-				// Spara resultatet som kom tillbaka från inställningarna
-				config.stop_loss = settings.stop_loss;
-				config.trailing_stop_loss = settings.trailing_stop_loss;
-				config.lavish_trailing_stop_loss = settings.lavish_trailing_stop_loss;
-				config.lavish_level = settings.lavish_level;
-				
-				debug(config.checkIntervalInSeconds, config.stop_loss, config.trailing_stop_loss, config.lavish_trailing_stop_loss, config.lavish_level);
-
-				// Hämta hela aktie-tabellen
-				// Visst, ett anrop till...
-				getStocks().then(function(stocks) {
-
-					// Vektorn med jobb som ska utföras
-					var promises = [];
-
-					// Lägg till ett jobb för varje aktie...
-					stocks.forEach(function(stock) {
-						// Att anropa xxx.bind() gör att parametrar automatiskt skickas till funktionen när
-						// den anropas även utan parametrar (null i detta fall är värdet av 'this')
-						promises.push(doSomeWorkOnStock.bind(_this, stock));
-					}); 
-
-					// runPromises() kör alla promises sekventiellt, antingen lyckas alla eller så blir det ett fel
-					runPromises(promises).then(function() {
-						resolve();
+					// Hämta inställningar, börja sedan med jobbet
+					getSettings(connection).then(function(settings) {
+		
+						// Spara resultatet som kom tillbaka från inställningarna
+						config.stop_loss = settings.stop_loss;
+						config.trailing_stop_loss = settings.trailing_stop_loss;
+						config.lavish_trailing_stop_loss = settings.lavish_trailing_stop_loss;
+						config.lavish_level = settings.lavish_level;
+						
+						debug(config.checkIntervalInSeconds, config.stop_loss, config.trailing_stop_loss, config.lavish_trailing_stop_loss, config.lavish_level);
+		
+						// Hämta hela aktie-tabellen
+						// Visst, ett anrop till...
+						getStocks(connection).then(function(stocks) {
+		
+							// Vektorn med jobb som ska utföras
+							var promises = [];
+		
+							// Lägg till ett jobb för varje aktie...
+							stocks.forEach(function(stock) {
+								// Att anropa xxx.bind() gör att parametrar automatiskt skickas till funktionen när
+								// den anropas även utan parametrar (null i detta fall är värdet av 'this')
+								promises.push(doSomeWorkOnStock.bind(_this, connection, stock));
+							}); 
+		
+							// runPromises() kör alla promises sekventiellt, antingen lyckas alla eller så blir det ett fel
+							runPromises(promises).then(function() {
+								connection.release();
+								resolve();
+							})
+							.catch(function(error) {
+								connection.release();
+								reject(error);
+							});
+		
+						})
+						.catch(function(error) {
+							connection.release();							
+							reject(error);
+						});
+						
 					})
 					.catch(function(error) {
+						connection.release();
 						reject(error);
 					});
-
-				})
-				.catch(function(error) {
-					reject(error);
-				});
 				
-			})
-			.catch(function(error) {
-				reject(error);
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", error);
+					reject(error);					
+				}
+				
 			});
-
 
 		});
 	};
@@ -284,7 +297,7 @@ var Worker = module.exports = function() {
 	};
 
 	function init() {
-		var MySQL = require('mysql');
+	/*	var MySQL = require('mysql');
 
 		_mysql = MySQL.createConnection({
 		  host     : '104.155.92.17',
@@ -293,7 +306,7 @@ var Worker = module.exports = function() {
 		  database : 'strecket'
 		});
 
-		_mysql.connect();
+		_mysql.connect();*/
 
 	};
 

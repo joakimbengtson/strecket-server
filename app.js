@@ -7,26 +7,22 @@ var sprintf = require('yow').sprintf;
 var bodyParser = require('body-parser');
 var redirectLogs = require('yow').redirectLogs;
 var prefixLogs = require('yow').prefixLogs;
-var MySQL = require('mysql');
 var yahooFinance = require('yahoo-finance');
-
 var config = require('./config.js');
+var mySQL = require('mysql');
 
-var mysql;
+
+var _pool  = mySQL.createPool({
+	host     : '104.155.92.17',
+	user     : 'root',
+	password : 'potatismos',
+	database : 'strecket'
+});
 
 
 var Server = function(args) {
 
 	args = parseArgs();
-	
-	mysql = MySQL.createConnection({
-	  host     : '104.155.92.17',
-	  user     : 'root',
-	  password : 'potatismos',
-	  database : 'strecket'
-	});
-
-	mysql.connect();
 
 	function parseArgs() {
 		var commander = require('commander');
@@ -90,145 +86,155 @@ var Server = function(args) {
 			});
 
 		})
-		/*
-		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
-		app.get('/stocks', function (request, response) {
-
-			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
-				if (rows.length > 0) {
-					if (error) {
-						response.status(200).json([]);
-					}
-					else {
-						//console.log(JSON.stringify(rows));
-						var tickerCheckList = [];
-
-						
-						for (var i = 0; i < rows.length; i++) {
-							tickerCheckList[i] = rows[i].ticker;	
-						};					
-																
-						yahooFinance.snapshot({
-						  symbols: tickerCheckList,
-						  fields: ['l1']
-						}, function (err, snapshot) {
-							if (err) {
-								console.log(err);	
-								response.status(404).json({error:err});						
-							}
-							else {
-								var percentage;
-								var stoplossStr;
-								
-								for (var i = 0; i < Object.keys(snapshot).length; i++) {
-									rows[i].senaste = snapshot[i].lastTradePriceOnly;
-									
-									// Beräkna % med 2 decimaler
-									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
-									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
-								}
-																
-								stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
-								
-								rows.push({namn:stoplossStr, ticker:'xxx'});
-								response.status(200).json(rows);							
-							}
-						});
-					}	
-				}
-				else
-					response.status(200).json([]);
-			});
-		})
-			*/	
 		
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
 		app.get('/stocks', function (request, response) {
-
-			mysql.query('SELECT * FROM aktier', function(error, rows, fields) {
-				if (!error) {
-					if (rows.length > 0) {
-						var tickerCheckList = [];
-						
-						for (var i = 0; i < rows.length; i++) {
-							tickerCheckList[i] = rows[i].ticker;	
-						};					
-																
-						yahooFinance.snapshot({
-						  symbols: tickerCheckList,
-						  fields: ['l1']
-						}, function (err, snapshot) {
-							if (err) {
-								console.log(err);	
-								response.status(404).json({error:err});						
-							}
-							else {
-								var percentage;
-								var stoplossStr;
+			
+			_pool.getConnection(function(err, connection) {
+				if (!err) {					
+					connection.query('SELECT * FROM aktier WHERE såld=0', function(error, rows, fields) {
+						if (!error) {
+							if (rows.length > 0) {
+								var tickerCheckList = [];
 								
-								for (var i = 0; i < Object.keys(snapshot).length; i++) {
-									rows[i].senaste = snapshot[i].lastTradePriceOnly;
-									
-									// Beräkna % med 2 decimaler
-									percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
-									rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
-								}
-																
-								stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
-								
-								rows.push({namn:stoplossStr, ticker:'xxx'});
-								response.status(200).json(rows);							
+								for (var i = 0; i < rows.length; i++) {
+									tickerCheckList[i] = rows[i].ticker;	
+								};					
+																		
+								yahooFinance.snapshot({
+								  symbols: tickerCheckList,
+								  fields: ['l1']
+								}, function (err, snapshot) {
+									if (err) {
+										console.log(err);	
+										response.status(404).json({error:err});						
+									}
+									else {
+										var percentage;
+										var stoplossStr;
+										
+										for (var i = 0; i < Object.keys(snapshot).length; i++) {
+											rows[i].senaste = snapshot[i].lastTradePriceOnly;
+											
+											// Beräkna % med 2 decimaler
+											percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
+											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
+										}
+																		
+										stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
+										
+										rows.push({namn:stoplossStr, ticker:'xxx'});
+										response.status(200).json(rows);							
+									}
+								});
 							}
-						});
-					}
-					else
-						response.status(200).json([]);
+							else
+								response.status(200).json([]);
+						}
+						else {
+							console.log("SELECT * FROM aktier misslyckades: ", error);
+							response.status(200).json([]);					
+						}	
+						connection.release();
+					});
 				}
 				else {
-					console.log("Kunde inte hämta aktier: ", error);
+					console.log("Kunde inte skapa en connection: ", err);
 					response.status(200).json([]);					
-				}
-			});
+				}				
+			});					
 		})
-
+		
 
 		// ----------------------------------------------------------------------------------------------------------------------------
-		// Sparar ny aktie
+		// Sparar ny aktie, finns den redan räkna ut genomsnittligt anskaffningsvärde
 		app.post('/save', function (request, response) {
 
 			var post  = request.body;
 
-			console.log("Sparar aktie: " + post);
+			console.log("Sparar aktie: ", post);
 
-			var query = mysql.query('INSERT INTO aktier SET ?', post, function(err, result) {
+			_pool.getConnection(function(err, connection) {
+				
+				if (!err) {
+					
+					connection.query('SELECT * FROM aktier WHERE såld=0 AND ticker=?', post.ticker, function(err, rows) {
+						if (rows.length > 0) {
+							//console.log(post.antal, rows[0].antal, (+post.antal) + (+rows[0].antal));
+							// Aktien finns, uppdatera
+							post.antal = (+post.antal) + (+rows[0].antal);
+							//console.log("Antal: ", post.antal);
+							
+							var pkurs = parseFloat(post.kurs);
+							var pantal = parseFloat(post.antal);
+							var rkurs = parseFloat(rows[0].kurs);
+							var rantal = parseFloat(rows[0].antal);
+							
+							post.kurs = (((parseFloat(pkurs) * parseFloat(pantal)) + (parseFloat(rkurs) * parseFloat(rantal))) / (parseFloat(pantal) + parseFloat(rantal))).toFixed(4);
+							//console.log("Kurs: ", pkurs, post.kurs);
 
-				if (err)
-					response.status(404).json({error:err});
-				else {
-					response.status(200).json({status:result});					
+							console.log("Aktien finns, uppdaterar: ", post, rows[0].id);
+
+							connection.query('UPDATE aktier SET ? WHERE id=?', [post, rows[0].id], function(err, result) {
+								if (err) 
+									response.status(404).json({error:err});
+								else
+									response.status(200).json({status:result});
+								
+								connection.release();
+							});
+							
+						}
+						else {
+							console.log("Aktien finns inte, skapar ny: ", post);
+
+							// Aktien finns inte, lägg upp den
+							connection.query('INSERT INTO aktier SET ?', post, function(err, result) {		
+								if (err)
+									response.status(404).json({error:err});
+								else
+									response.status(200).json({status:result});
+								
+								connection.release();
+							});
+						}						
+					});
 				}
-			});	
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(404).json({error:err});
+				}
+			});					
 		})
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
-		// Raderar aktie
+		// Säljer aktie
 		app.delete('/stocks/:id', function (request, response) {
 
 			var id  = request.params.id;
 
-			console.log('Raderar aktie: ', id);
-			
-			var query = mysql.query('DELETE FROM aktier WHERE id=?', id, function(err, result) {
+			console.log('Säljer aktie: ', id);
 
-				if (err)
-					response.status(404).json({error:err});
-				else
-					response.status(200).json({status:result});
-			});	
+			_pool.getConnection(function(err, connection) {
+				
+				if (!err) {
+					connection.query('UPDATE aktier SET såld=1, såld_datum=NOW() WHERE id=?', id, function(err, result) {	
+						if (err)
+							response.status(404).json({error:err});
+						else
+							response.status(200).json({status:result});
+							
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(404).json({error:err});					
+				}
+			});					
 		})
 
 
@@ -241,7 +247,7 @@ var Server = function(args) {
 
 	function work() {		
 		var Worker = require('./worker.js');
-		var worker = new Worker(mysql);
+		var worker = new Worker(_pool);
 		
 		worker.run();
 	}
