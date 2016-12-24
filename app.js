@@ -105,7 +105,7 @@ var Server = function(args) {
 																		
 								yahooFinance.snapshot({
 								  symbols: tickerCheckList,
-								  fields: ['l1']
+								  fields: ['l1', 'm3', 'm4']
 								}, function (err, snapshot) {
 									if (err) {
 										console.log(err);	
@@ -117,6 +117,8 @@ var Server = function(args) {
 										
 										for (var i = 0; i < Object.keys(snapshot).length; i++) {
 											rows[i].senaste = snapshot[i].lastTradePriceOnly;
+											rows[i].sma50 = snapshot[i]['50DayMovingAverage'];
+											rows[i].sma200 = snapshot[i]['200DayMovingAverage'];
 											
 											// Beräkna % med 2 decimaler
 											percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
@@ -162,21 +164,26 @@ var Server = function(args) {
 					
 					connection.query('SELECT * FROM aktier WHERE såld=0 AND ticker=?', post.ticker, function(err, rows) {
 						if (rows.length > 0) {
-							//console.log(post.antal, rows[0].antal, (+post.antal) + (+rows[0].antal));
-							// Aktien finns, uppdatera
-							post.antal = (+post.antal) + (+rows[0].antal);
-							//console.log("Antal: ", post.antal);
+							// Aktien finns
+							if (post.antal > 0) {
+								// Räkna ut nytt anskaffningsvärde
+								console.log("Aktien finns, uppdaterar: ", post, rows[0].id);
+								post.antal = (+post.antal) + (+rows[0].antal);
+								
+								var pkurs = parseFloat(post.kurs);
+								var pantal = parseFloat(post.antal);
+								var rkurs = parseFloat(rows[0].kurs);
+								var rantal = parseFloat(rows[0].antal);
+								
+								post.kurs = (((parseFloat(pkurs) * parseFloat(pantal)) + (parseFloat(rkurs) * parseFloat(rantal))) / (parseFloat(pantal) + parseFloat(rantal))).toFixed(4);								
+							}
+							else {
+								// Vi ska bara uppdatera stop loss, så behåll ursprungligt antal och kurs
+								console.log("Antal är 0, vi sparar med ny stop loss: ", post, rows[0].id);
+								post.antal = rows[0].antal;
+								post.kurs = rows[0].kurs;
+							}
 							
-							var pkurs = parseFloat(post.kurs);
-							var pantal = parseFloat(post.antal);
-							var rkurs = parseFloat(rows[0].kurs);
-							var rantal = parseFloat(rows[0].antal);
-							
-							post.kurs = (((parseFloat(pkurs) * parseFloat(pantal)) + (parseFloat(rkurs) * parseFloat(rantal))) / (parseFloat(pantal) + parseFloat(rantal))).toFixed(4);
-							//console.log("Kurs: ", pkurs, post.kurs);
-
-							console.log("Aktien finns, uppdaterar: ", post, rows[0].id);
-
 							connection.query('UPDATE aktier SET ? WHERE id=?', [post, rows[0].id], function(err, result) {
 								if (err) 
 									response.status(404).json({error:err});

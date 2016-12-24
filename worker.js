@@ -5,7 +5,7 @@ var Worker = module.exports = function(pool) {
 	var _this = this;
 
 	function debug() {
-		if (true)
+		if (false)
 			console.log.apply(null, arguments);
 	};
 
@@ -56,8 +56,11 @@ var Worker = module.exports = function(pool) {
 	function sendSMS(txtMsg) {
 		return new Promise(function(resolve, reject) {
 
-			var client = require('twilio')();
-			 
+			var client = require('twilio')(
+				process.env.TWILIO_ACCOUNT_SID,
+				process.env.TWILIO_AUTH_TOKEN
+			);			 
+
 			client.sendSms({
 				    to: '+46703489493',
 				    from:'+46769447443',
@@ -145,7 +148,30 @@ var Worker = module.exports = function(pool) {
 				if (stock.flyger) {
 					
 					debug(stock.namn, "flyger");
+					
+					if (!stock.larm) {
+						// Om vi inte redan larmat, kolla om vi ska larma
+						var stopLoss = config.trailing_stop_loss;
+						
+						if (stock.stoploss) {
+							debug(stock.namn, "har egen stop loss", stock.stoploss)
+							stopLoss = stock.stoploss;							
+						}
+						else
+							debug(stock.namn, "default stop loss", stopLoss)
 
+						if (1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > stopLoss) {
+							
+							console.log(stock.namn, " under släpande stop loss, larma");
+	
+							// Larma med sms och uppdatera databasen med larmflagga
+							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
+							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+						}						
+						
+					}
+					
+					/*
 					// Vi flyger, kolla Kursdiff > släpande stop loss?
 					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > config.trailing_stop_loss) {
 						
@@ -155,6 +181,7 @@ var Worker = module.exports = function(pool) {
 						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
 						promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 					}
+					*/
 
 				}
 				else {
@@ -288,7 +315,8 @@ var Worker = module.exports = function(pool) {
 		.catch(function(error) {
 			// Om något blev fel, överhuvudtaget (!), så skriv ut hela stacken till konsollen,
 			// med radnummer och allt...
-			console.log(error.stack);
+			console.log("Fel: ", error);
+			//console.log("Fel: ", error.stack);
 
 			// Och börja om igen
 			setTimeout(work, config.checkIntervalInSeconds * 1000);
