@@ -1,5 +1,7 @@
 
 var config = require('./config.js');
+var tokens = require('./tokens.js');
+
 
 var Worker = module.exports = function(pool) {
 	var _this = this;
@@ -56,10 +58,7 @@ var Worker = module.exports = function(pool) {
 	function sendSMS(txtMsg) {
 		return new Promise(function(resolve, reject) {
 
-			var client = require('twilio')(
-				process.env.TWILIO_ACCOUNT_SID,
-				process.env.TWILIO_AUTH_TOKEN
-			);			 
+			var client = require('twilio')(tokens.TWILIO_ACCOUNT_SID, tokens.TWILIO_AUTH_TOKEN);			 
 
 			client.sendSms({
 				    to: '+46703489493',
