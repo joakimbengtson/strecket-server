@@ -24,7 +24,7 @@ var Worker = module.exports = function(pool) {
 
 			// Skriver ut frågan helt enkelt i klartext
 			debug("Query: ", query.sql);
-
+ 
 		});
 
 	}
