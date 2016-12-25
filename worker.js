@@ -148,20 +148,22 @@ var Worker = module.exports = function(pool) {
 					
 					debug(stock.namn, "flyger");
 					
+					var stopLoss = config.trailing_stop_loss;
+					
+					// Kolla om aktien har egen stop loss
+					if (stock.stoploss) {
+						debug(stock.namn, "har egen stop loss", stock.stoploss)
+						stopLoss = stock.stoploss;							
+					}
+					else
+						debug(stock.namn, "default stop loss", stopLoss)
+					
 					if (!stock.larm) {
-						// Om vi inte redan larmat, kolla om vi ska larma
-						var stopLoss = config.trailing_stop_loss;
-						
-						if (stock.stoploss) {
-							debug(stock.namn, "har egen stop loss", stock.stoploss)
-							stopLoss = stock.stoploss;							
-						}
-						else
-							debug(stock.namn, "default stop loss", stopLoss)
+						// Om vi inte redan larmat, kolla om vi ska larma	
 
 						if (1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > stopLoss) {
 							
-							console.log(stock.namn, " under släpande stop loss, larma");
+							console.log(stock.namn, " under släpande stop loss, larma.");
 	
 							// Larma med sms och uppdatera databasen med larmflagga
 							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
@@ -169,18 +171,18 @@ var Worker = module.exports = function(pool) {
 						}						
 						
 					}
-					
-					/*
-					// Vi flyger, kolla Kursdiff > släpande stop loss?
-					if (!stock.larm && 1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > config.trailing_stop_loss) {
-						
-						console.log(stock.namn, " under släpande stop loss, larma");
+					else {
+						// Har vi redan larmat, kolla om vi återhämtat oss?
 
-						// Larma med sms och uppdatera databasen med larmflagga
-						promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
-						promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
-					}
-					*/
+						if (1 - (snapshot.lastTradePriceOnly / stock.maxkurs) < stopLoss) {
+							
+							console.log(stock.namn, " har återhämtat sig, återställer larm.");
+	
+							// Larma med sms och uppdatera databasen med larmflagga
+							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " har återhämtat sig från stop loss, nu " + percentage + "% från köpkursen."));
+							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
+						}						
+					}					
 
 				}
 				else {
