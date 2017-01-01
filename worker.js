@@ -172,13 +172,13 @@ var Worker = module.exports = function(pool) {
 						
 					}
 					else {
-						// Har vi redan larmat, kolla om vi återhämtat oss?
+						// Har vi redan larmat, kolla om vi återhämtat oss? (Måste återhämtat minst 1% för att räknas...)
 
-						if (1 - (snapshot.lastTradePriceOnly / stock.maxkurs) < stopLoss) {
+						if ((1 - (snapshot.lastTradePriceOnly / stock.maxkurs)) + 0.01 < stopLoss) {
 							
 							console.log(stock.namn, " har återhämtat sig, återställer larm.");
 	
-							// Larma med sms och uppdatera databasen med larmflagga
+							// Larma med sms och uppdatera databasen med rensad larmflagga
 							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " har återhämtat sig från stop loss, nu " + percentage + "% från köpkursen."));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
 						}						
@@ -216,7 +216,7 @@ var Worker = module.exports = function(pool) {
 				debug("Senaste pris, max pris: ", snapshot.lastTradePriceOnly, stock.maxkurs);
 
 				// Ny maxkurs?
-				if (snapshot.lastTradePriceOnly > stock.maxkurs) {
+				if (snapshot.lastTradePriceOnly > stock.maxkurs || stock.maxkurs == null || stock.maxkurs == 0) {
 					console.log("Sätter ny maxkurs: ", snapshot.lastTradePriceOnly, stock.ticker);
 					promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.lastTradePriceOnly, stock.id]));
 				}

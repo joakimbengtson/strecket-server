@@ -10,12 +10,13 @@ var prefixLogs = require('yow').prefixLogs;
 var yahooFinance = require('yahoo-finance');
 var config = require('./config.js');
 var mySQL = require('mysql');
+var tokens = require('./tokens.js');
 
 
 var _pool  = mySQL.createPool({
-	host     : '104.155.92.17',
-	user     : 'root',
-	password : 'potatismos',
+	host     : tokens.HOST,
+	user     : tokens.USER,
+	password : tokens.PW,
 	database : 'strecket'
 });
 
@@ -40,6 +41,31 @@ var Server = function(args) {
 
 		return args;
 	}
+
+
+	function getYahooHistorical(options) {
+
+		return new Promise(function(resolve, reject) {
+			
+			var yahoo = require('yahoo-finance');
+			
+			yahoo.historical(options, function (error, quotes) {
+
+				try {					
+					if (error)
+						reject(error);
+					else
+						resolve(quotes);
+				}
+				catch (error) {
+					reject(error);
+				}
+						
+			});
+			
+		});
+	}
+	
 	
 	function getYahooSnapshot(options) {
 
@@ -64,6 +90,23 @@ var Server = function(args) {
 		});
 	}
 	
+	
+	function getFormattedDate(d) {
+		var dd = d.getDate();
+		var mm = d.getMonth()+1; //January is 0!
+		var yyyy = d.getFullYear();
+		
+		if (dd < 10) {
+		    dd = '0' + dd;
+		} 
+		
+		if(mm < 10) {
+		    mm = '0' + mm;
+		} 
+		
+		return yyyy + '-' + mm + '-' + dd;		
+	}
+	
 
 	function listen() {
 		
@@ -74,10 +117,65 @@ var Server = function(args) {
 		
 		
 		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar ATR för ticker
+		app.get('/atr/:ticker', function (request, response) {
+			var ticker = request.params.ticker;
+			var firstQuote = true;
+			var atr;
+			var prevClose;
+			var start;
+			var i;
+			
+			console.log("Räknar ut ATR på ticker ", ticker);
+			
+			var today = getFormattedDate(new Date());
+			var twoWeeksAgoish = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23))); // Hämta 23 dagar tillbaks för att vara säker på att få 14 börsdagar
+			console.log(today, twoWeeksAgoish);						
+			getYahooHistorical({symbol:ticker, from:twoWeeksAgoish, to:today}).then(function(quotes) {
+				
+				start = Math.max(quotes.length - 14, 0);
+				console.log(start, quotes.length);
+				for (i = start; i < quotes.length; ++i) {
+					
+					console.log(quotes[i]);
+					
+					if (firstQuote) {
+						firstQuote = false;
+						atr = quotes[i].high - quotes[i].low;
+						//console.log(atr);
+					}
+					else {
+						atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));						
+						//console.log(atr);
+					}
+					
+					prevClose = quotes[i].close;
+				}
+				
+				// Dela med 14 (normalt) för att få medelvärde				
+				atr = atr/quotes.length;
+				console.log("ATR = ", atr);
+				
+				// Omvandla till %
+				atr = (100 * (atr/quotes[i-1].close)).toFixed(2);
+
+				console.log("ATR i % = ", atr);
+								
+				response.status(200).json(atr);
+			})
+			.catch(function(error) {
+				response.status(200).json([]);
+			});
+
+		})
+		
+		
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Kollar om ticker finns, i så fall företagsnamn tillbaks
 		app.get('/company/:ticker', function (request, response) {
 
 			var ticker = request.params.ticker;
+			console.log("Söker efter namn på ticker ", ticker);
 			getYahooSnapshot({symbol:ticker, fields:['n']}).then(function(snapshot) {
 				response.status(200).json(snapshot.name);
 			})
@@ -94,6 +192,7 @@ var Server = function(args) {
 			
 			_pool.getConnection(function(err, connection) {
 				if (!err) {					
+					console.log("Hämtar alla aktier från DB.");
 					connection.query('SELECT * FROM aktier WHERE såld=0', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
