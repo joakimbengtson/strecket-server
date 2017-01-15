@@ -212,7 +212,6 @@ var Server = function(args) {
 									}
 									else {
 										var percentage;
-										var stoplossStr;
 										
 										for (var i = 0; i < Object.keys(snapshot).length; i++) {
 											rows[i].senaste = snapshot[i].lastTradePriceOnly;
@@ -224,9 +223,6 @@ var Server = function(args) {
 											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
 										}
 																		
-										stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
-										
-										rows.push({namn:stoplossStr, ticker:'xxx'});
 										response.status(200).json(rows);							
 									}
 								});
