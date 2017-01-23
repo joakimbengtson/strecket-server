@@ -326,16 +326,6 @@ var Worker = module.exports = function(pool) {
 	};
 
 	function init() {
-	/*	var MySQL = require('mysql');
-
-		_mysql = MySQL.createConnection({
-		  host     : '104.155.92.17',
-		  user     : 'root',
-		  password : 'potatismos',
-		  database : 'strecket'
-		});
-
-		_mysql.connect();*/
 
 	};
 

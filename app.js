@@ -107,6 +107,80 @@ var Server = function(args) {
 		return yyyy + '-' + mm + '-' + dd;		
 	}
 	
+	
+	function getSMAs(ticker, name) {
+		var values = [];
+		var counter = 0;
+		var i;
+		var sma10Counter = 0;
+		var sma50Counter = 0;
+		var sma200Counter = 0;
+		var sma10 = 0;
+		var sma50 = 0;
+		var sma200 = 0;
+
+		return new Promise(function(resolve, reject) {
+		
+			var today = getFormattedDate(new Date());
+			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290)));
+	
+			getYahooHistorical({symbol:ticker, from:fromDate, to:today, period: 'd'}).then(function(quotes) {
+
+				for (i = quotes.length-1; counter < 200 || counter < quotes.length; i--) {
+					
+					if (counter < 10) {
+						if (typeof quotes[i] != 'undefined') {
+							sma10 = sma10 + quotes[i].close;
+							++sma10Counter;							
+						}
+					}
+						
+					if (counter < 50) {
+						if (typeof quotes[i] != 'undefined') {
+							sma50 = sma50 + quotes[i].close;						
+							++sma50Counter;							
+						}
+					}
+	
+					if (counter < 200) {
+						if (typeof quotes[i] != 'undefined') {
+							sma200 = sma200 + quotes[i].close;						
+							++sma200Counter;							
+						}
+					}
+					
+					++counter;
+					
+				}
+												
+				values[0] = sma10/sma10Counter;
+				values[1] = sma50/sma50Counter;
+				values[2] = sma200/sma200counter;
+
+				resolve({values:values, ticker:ticker, name:name});
+			})
+			.catch(function(error) {
+				reject(error);
+			});
+			
+		});
+
+	}
+	
+	function getLatestQuote(ticker) {
+
+		return new Promise(function(resolve, reject) {
+		
+			getYahooSnapshot({symbol:ticker, fields:['l1']}).then(function(snapshot) {
+				resolve(snapshot.lastTradePriceOnly);
+			})
+			.catch(function(error) {
+				reject(error);
+			});		
+		});
+
+	}
+	
 
 	function listen() {
 		
@@ -117,7 +191,58 @@ var Server = function(args) {
 		
 		
 		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar ATR för ticker
+		// Returnerar SMA 10, 50, 200 för ticker
+		app.get('/sma/:ticker', function (request, response) {
+			var ticker = request.params.ticker;
+			var values = [];
+			var counter = 0;
+			var i;
+			var sma10 = 0;
+			var sma50 = 0;
+			var sma200 = 0;
+			
+			console.log("Räknar ut SMA:s på ticker ", ticker);
+			
+			var today = getFormattedDate(new Date());
+			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290)));
+			console.log(today, fromDate);						
+			getYahooHistorical({symbol:ticker, from:fromDate, to:today, period: 'd'}).then(function(quotes) {
+				
+				console.log("Antal börsdagar :", quotes.length);
+				
+				for (i = quotes.length-1; counter < 200; i--) {
+					
+					if (counter < 10) {
+						sma10 = sma10 + quotes[i].close;
+					}
+						
+					if (counter < 50) {
+						sma50 = sma50 + quotes[i].close;						
+					}
+
+					if (counter < 200) {
+						sma200 = sma200 + quotes[i].close;						
+					}
+					
+					++counter;
+					
+				}
+												
+				values[0] = sma10/10;
+				values[1] = sma50/50;
+				values[2] = sma200/200;
+				
+				response.status(200).json(values);
+			})
+			.catch(function(error) {
+				response.status(200).json([]);
+			});
+
+		})
+		
+		
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar ATR(14) för ticker
 		app.get('/atr/:ticker', function (request, response) {
 			var ticker = request.params.ticker;
 			var firstQuote = true;
@@ -132,7 +257,7 @@ var Server = function(args) {
 			var twoWeeksAgoish = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23))); // Hämta 23 dagar tillbaks för att vara säker på att få 14 börsdagar
 			console.log(today, twoWeeksAgoish);						
 			getYahooHistorical({symbol:ticker, from:twoWeeksAgoish, to:today}).then(function(quotes) {
-				
+
 				start = Math.max(quotes.length - 14, 0);
 				console.log(start, quotes.length);
 				for (i = start; i < quotes.length; ++i) {
@@ -152,7 +277,7 @@ var Server = function(args) {
 					prevClose = quotes[i].close;
 				}
 				
-				// Dela med 14 (normalt) för att få medelvärde				
+				// Dela med 14 för att få medelvärde				
 				atr = atr/quotes.length;
 				console.log("ATR = ", atr);
 				
@@ -185,6 +310,65 @@ var Server = function(args) {
 
 		})
 		
+		
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar alla index som screenas 
+		app.get('/watches', function (request, response) {
+			var result = [];
+			var tickersComplete = 0;
+			
+			_pool.getConnection(function(err, connection) {
+				if (!err) {					
+					console.log("Hämtar alla bevakningar från DB.");
+					connection.query('SELECT * FROM bevakning', function(error, rows, fields) {
+						if (!error) {
+							if (rows.length > 0) {
+								
+								for (var i = 0; i < rows.length; i++) {
+
+									getSMAs(rows[i].ticker, rows[i].namn).then(function(values) {
+										getLatestQuote(values.ticker).then(function(quote) {
+											
+											values.quote = quote;											
+											result.push(values);
+											
+											tickersComplete++;
+											
+											if (tickersComplete == rows.length)
+												response.status(200).json(result);
+											
+										})
+										.catch(function(error) {
+											console.log("Kunde inte hämta senaste kurs: ", error);
+											response.status(200).json([]);
+										});
+										
+									})
+									.catch(function(error) {
+										console.log("Kunde inte hämta SMA:s: ", error);
+										response.status(200).json([]);
+									});
+									
+								};					
+							}
+							else
+								response.status(200).json([]);
+						}
+						else {
+							console.log("SELECT * FROM bevakning misslyckades: ", error);
+							response.status(200).json([]);					
+						}	
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);					
+				}				
+			});					
+		})
+		
+		
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
@@ -212,21 +396,16 @@ var Server = function(args) {
 									}
 									else {
 										var percentage;
-										var stoplossStr;
 										
 										for (var i = 0; i < Object.keys(snapshot).length; i++) {
 											rows[i].senaste = snapshot[i].lastTradePriceOnly;
 											rows[i].sma50 = snapshot[i]['50DayMovingAverage'];
 											rows[i].sma200 = snapshot[i]['200DayMovingAverage'];
-											
 											// Beräkna % med 2 decimaler
 											percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
 											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
 										}
-																		
-										stoplossStr = sprintf('Stop loss: %2d%% Släpande stop loss: %2d%% Frikostig stop loss: %2d%% Frikostig nivå: %2d%%', config.stop_loss*100, config.trailing_stop_loss*100, config.lavish_trailing_stop_loss*100, config.lavish_level*100);
-										
-										rows.push({namn:stoplossStr, ticker:'xxx'});
+																												
 										response.status(200).json(rows);							
 									}
 								});
