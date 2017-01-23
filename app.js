@@ -405,7 +405,6 @@ var Server = function(args) {
 											percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
 											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
 										}
-																												
 										response.status(200).json(rows);							
 									}
 								});
