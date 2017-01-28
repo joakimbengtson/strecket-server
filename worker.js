@@ -138,7 +138,7 @@ var Worker = module.exports = function(pool) {
 				var percentage = (1 - (stock.kurs/snapshot.lastTradePriceOnly)) * 100;
 				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 				
-				debug(stock.namn, "Utfall, köpkurs, stoploss, kurs nu:", percentage, stock.kurs, stock.stoploss, snapshot.lastTradePriceOnly);
+				debug(stock.namn, "Utfall, köpkurs, stoploss, kurs nu:", percentage, stock.kurs, stock.stoplossProcent, snapshot.lastTradePriceOnly);
 
 				// En vektor med det som ska göras för varje aktie
 				var promises = [];				
@@ -146,7 +146,7 @@ var Worker = module.exports = function(pool) {
 				
 				// Kolla om aktien har egen stop loss
 				if (stock.stoploss)
-					stopLoss = stock.stoploss;
+					stopLoss = stock.stoplossProcent;
 				else
 					stopLoss = config.trailing_stop_loss;
 				
