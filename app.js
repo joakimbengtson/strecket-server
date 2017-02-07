@@ -122,7 +122,7 @@ var Server = function(args) {
 		return new Promise(function(resolve, reject) {
 		
 			var today = getFormattedDate(new Date());
-			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290)));
+			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290))); // Hämta minst 200 dagar
 	
 			getYahooHistorical({symbol:ticker, from:fromDate, to:today, period: 'd'}).then(function(quotes) {
 
@@ -155,7 +155,7 @@ var Server = function(args) {
 												
 				values[0] = sma10/sma10Counter;
 				values[1] = sma50/sma50Counter;
-				values[2] = sma200/sma200counter;
+				values[2] = sma200/sma200Counter;
 
 				resolve({values:values, ticker:ticker, name:name});
 			})
@@ -247,6 +247,8 @@ var Server = function(args) {
 			var ticker = request.params.ticker;
 			var firstQuote = true;
 			var atr;
+			var atrPercent;
+			var atrDate;
 			var prevClose;
 			var start;
 			var i;
@@ -255,11 +257,11 @@ var Server = function(args) {
 			
 			var today = getFormattedDate(new Date());
 			var twoWeeksAgoish = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23))); // Hämta 23 dagar tillbaks för att vara säker på att få 14 börsdagar
-			console.log(today, twoWeeksAgoish);						
+
 			getYahooHistorical({symbol:ticker, from:twoWeeksAgoish, to:today}).then(function(quotes) {
 
 				start = Math.max(quotes.length - 14, 0);
-				console.log(start, quotes.length);
+				console.log("Start, quotes.length", start, quotes.length);
 				for (i = start; i < quotes.length; ++i) {
 					
 					console.log(quotes[i]);
@@ -267,26 +269,25 @@ var Server = function(args) {
 					if (firstQuote) {
 						firstQuote = false;
 						atr = quotes[i].high - quotes[i].low;
-						//console.log(atr);
 					}
 					else {
 						atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));						
-						//console.log(atr);
 					}
 					
 					prevClose = quotes[i].close;
 				}
 				
-				// Dela med 14 för att få medelvärde				
-				atr = atr/quotes.length;
-				console.log("ATR = ", atr);
+				// ATR(14)
+				atr = atr / 14;
 				
 				// Omvandla till %
-				atr = (100 * (atr/quotes[i-1].close)).toFixed(2);
+				atrPercent = (100 * (atr/quotes[i-1].close)).toFixed(2);
+				
+				atrDate = quotes[i-1].date.toISOString().substring(0, 10);
 
-				console.log("ATR i % = ", atr);
+				console.log("ATR=", atr, " % ATR=", atrPercent, " datum=", atrDate);
 								
-				response.status(200).json(atr);
+				response.status(200).json({atr:atr, atrPercent:atrPercent, atrDate:atrDate});
 			})
 			.catch(function(error) {
 				response.status(200).json([]);
@@ -320,7 +321,7 @@ var Server = function(args) {
 			_pool.getConnection(function(err, connection) {
 				if (!err) {					
 					console.log("Hämtar alla bevakningar från DB.");
-					connection.query('SELECT * FROM bevakning', function(error, rows, fields) {
+					connection.query('SELECT * FROM bevakning ORDER BY id', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
 								
@@ -388,7 +389,7 @@ var Server = function(args) {
 																		
 								yahooFinance.snapshot({
 								  symbols: tickerCheckList,
-								  fields: ['l1', 'm3', 'm4']
+								  fields: ['l1', 'm3', 'm4', 'p']
 								}, function (err, snapshot) {
 									if (err) {
 										console.log(err);	
@@ -403,7 +404,9 @@ var Server = function(args) {
 											rows[i].sma200 = snapshot[i]['200DayMovingAverage'];
 											// Beräkna % med 2 decimaler
 											percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
-											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2); 
+											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+											rows[i].atrStoploss = (rows[i].ATR * rows[i].ATRMultipel) / snapshot[i].previousClose;
+											console.log(rows[i].ATR, rows[i].ATRMultipel, snapshot[i].previousClose);
 										}
 										response.status(200).json(rows);							
 									}
