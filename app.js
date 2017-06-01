@@ -21,6 +21,14 @@ var _pool  = mySQL.createPool({
 });
 
 
+var _poolMunch  = mySQL.createPool({
+	host     : tokens.HOST,
+	user     : tokens.USER,
+	password : tokens.PW,
+	database : 'munch'
+});
+
+
 var Server = function(args) {
 
 	args = parseArgs();
@@ -73,7 +81,7 @@ var Server = function(args) {
 			
 			var yahoo = require('yahoo-finance');
 			
-			yahoo.snapshot(options, function (error, snapshot) {
+			yahoo.quote(options, function (error, snapshot) {
 
 				try {					
 					if (error)
@@ -90,7 +98,7 @@ var Server = function(args) {
 		});
 	}
 	
-	
+		
 	function getFormattedDate(d) {
 		var dd = d.getDate();
 		var mm = d.getMonth()+1; //January is 0!
@@ -107,17 +115,24 @@ var Server = function(args) {
 		return yyyy + '-' + mm + '-' + dd;		
 	}
 	
-	
-	function getSMAs(ticker, name, id) {
+	/* OLD getSMAs
+	function getSMAs(ticker, name, id, type) {
 		var values = [];
+		var volumes = []; 
+		var closes = []; 
 		var counter = 0;
 		var i;
 		var sma10Counter = 0;
 		var sma50Counter = 0;
 		var sma200Counter = 0;
+		var volumeCounter = 0;
+		var volumeAdder = 0;
 		var sma10 = 0;
 		var sma50 = 0;
 		var sma200 = 0;
+		var firstQuote = true;
+		var prevClose;
+		var atr;
 
 		return new Promise(function(resolve, reject) {
 		
@@ -137,37 +152,80 @@ var Server = function(args) {
 						
 					if (counter < 50) {
 						if (typeof quotes[i] != 'undefined') {
+							
+							// Spara stängningskurs för vektor med kurser -> graf
+							closes[sma50Counter] = quotes[i].close;
+
 							sma50 = sma50 + quotes[i].close;						
-							++sma50Counter;							
+							++sma50Counter;			
+
+							volumeAdder = volumeAdder + quotes[i].volume;
+							
+							if ((sma50Counter % 5) == 0) {
+								// Spara snittet på volymen de senaste 5 dagarna
+								volumes[volumeCounter] = Math.floor(volumeAdder/5);
+								volumeAdder = 0;
+								++volumeCounter;
+							}
+																		
 						}
 					}
 	
 					if (counter < 200) {
 						if (typeof quotes[i] != 'undefined') {
 							sma200 = sma200 + quotes[i].close;						
-							++sma200Counter;							
+							++sma200Counter;														
 						}
 					}
 					
+					// Returnera stängning 7, 14 och 21 dagar tillbaks
 					if (counter == 6) {
-						values[3] = quotes[i].close;						
+						if (typeof quotes[i] != 'undefined')
+							values[3] = quotes[i].close;
 					}
 
-					if (counter == 13)
-						values[4] = quotes[i].close;
+					if (counter == 13) {
+						if (typeof quotes[i] != 'undefined')
+							values[4] = quotes[i].close;
+					}
 
-					if (counter == 20)
-						values[5] = quotes[i].close;
+					if (counter == 20) {
+						if (typeof quotes[i] != 'undefined')
+							values[5] = quotes[i].close;
+					}
+					
+					// Beräkna atr(14)
+					if (counter < 14) {
+						if (typeof quotes[i] != 'undefined') {
+							if (firstQuote) {
+								firstQuote = false;
+								atr = quotes[i].high - quotes[i].low;
+							}
+							else {
+								atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));						
+							}
+							
+							prevClose = quotes[i].close;
+						}
+					}
 					
 					++counter;
 					
 				}
-												
+
 				values[0] = sma10/sma10Counter;
 				values[1] = sma50/sma50Counter;
 				values[2] = sma200/sma200Counter;
-				
-				resolve({values:values, ticker:ticker, name:name, id:id});
+
+				values[6] = volumes.reverse(); // Äldsta värdet först
+				values[8] = closes.reverse(); // Äldsta värdet först
+
+				if (typeof quotes[quotes.length-1] != 'undefined')
+					values[7] = (100 * ((atr/14)/quotes[quotes.length-1].close)).toFixed(2); // Visa ATR som %
+				else
+					values[7] = 0;
+					
+				resolve({values:values, ticker:ticker, name:name, id:id, type:type});
 			})
 			.catch(function(error) {
 				reject(error);
@@ -175,15 +233,98 @@ var Server = function(args) {
 			
 		});
 
+	} */
+
+	function getSMAs(ticker, name, id, type) {
+		var values = [];
+		var volumes = []; 
+		var closes = []; 
+		var counter = 0;
+		var sma10 = 0;
+		var sma50 = 0;
+		var sma200 = 0;
+		var firstQuote = true;
+		var prevClose;
+		var atr;
+
+		return new Promise(function(resolve, reject) {
+
+			_poolMunch.getConnection(function(err, connection) {
+				if (!err) {					
+					console.log("connection till munch öppnad!"); 
+					connection.query('SELECT * FROM stocks WHERE symbol=?', ticker, function(error, rows, fields) {
+						if (!error) {
+							if (rows.length > 0) {
+																
+								values[0] = rows[0].SMA10;
+								values[1] = rows[0].SMA50;
+								values[2] = rows[0].SMA200;
+								
+								values[7] = rows[0].ATR14;
+								
+								connection.query('select * from quotes where symbol = ? order by date desc limit 30', ticker, function(error, rows, fields) { // Hämta de 30 senaste dagsnoteringarna
+									if (!error) {
+										if (rows.length > 0) {
+											values[3] = rows[6].close;  // Close 7 dagar sen
+											values[4] = rows[13].close; // Close 14 dagar sen
+											values[5] = rows[20].close; // Close 21 dagar sen
+											
+											values[7] = (100 * values[7] / rows[0].close).toFixed(2);
+											
+											for (i = 0; i < 30; i++) {
+												volumes[i] = rows[i].volume; // 30 senaste dagars volym
+												closes[i] =  rows[i].close;  // 30 senaste dagars close
+											}
+											
+											values[6] = volumes.reverse(); // Äldsta värdet först
+											values[8] = closes.reverse(); // Äldsta värdet först
+							
+											console.log("closes", values[8], closes);
+											
+										}
+										else {
+											console.log("select * from quotes where symbol = ? order by date desc limit 30", ticker, "returnerade inget.");
+											response.status(200).json([]);
+										}
+									}
+									else {
+										console.log("ERROR: select * from quotes where symbol = ? order by date desc limit 30", error);
+										response.status(200).json([]);					
+									}	
+								});
+									
+								resolve({values:values, ticker:ticker, name:name, id:id, type:type});
+								
+							}
+							else {
+								console.log("SELECT * FROM stocks WHERE symbol =", ticker, "returnerade inget.");
+								response.status(200).json([]);
+							}
+						}
+						else {
+							console.log("SELECT * FROM stocks misslyckades: ", error);
+							response.status(200).json([]);					
+						}	
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);					
+				}
+			});
+			
+		});
+
 	}
+
 	
-	function getLatestQuote(ticker) {
+	function getLatestQuote(ticker, type) {
 
 		return new Promise(function(resolve, reject) {
 		
-			getYahooSnapshot({symbol:ticker, fields:['l1', 'p']}).then(function(snapshot) {
-				console.log(ticker, snapshot.lastTradePriceOnly, snapshot.previousClose);
-				resolve({quote:snapshot.lastTradePriceOnly, previousClose:snapshot.previousClose});
+			getYahooSnapshot({symbol:ticker, modules: ['price']}).then(function(snapshot) {
+				resolve({quote:snapshot.price.regularMarketPrice, previousClose:snapshot.price.regularMarketPreviousClose, company:snapshot.price.longName, type:type});
 			})
 			.catch(function(error) {
 				reject(error);
@@ -200,7 +341,7 @@ var Server = function(args) {
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
 		
-		
+		/*
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar SMA 10, 50 eller 200 för ticker
 		app.get('/sma/:count/:ticker', function (request, response) {
@@ -217,7 +358,7 @@ var Server = function(args) {
 			
 			var today = getFormattedDate(new Date());
 			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290)));
-			console.log(today, fromDate);						
+
 			getYahooHistorical({symbol:ticker, from:fromDate, to:today, period: 'd'}).then(function(quotes) {
 				
 				console.log("Antal börsdagar :", quotes.length);
@@ -249,8 +390,6 @@ var Server = function(args) {
 				else
 					v = -1;
 				
-				console.log(count, v);
-
 				response.status(200).json(v);
 			})
 			.catch(function(error) {
@@ -258,8 +397,9 @@ var Server = function(args) {
 			});
 
 		})
+		*/
 		
-		
+		/*
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar ATR(14) för ticker
 		app.get('/atr/:ticker', function (request, response) {
@@ -282,9 +422,7 @@ var Server = function(args) {
 				start = Math.max(quotes.length - 14, 0);
 				console.log("Start, quotes.length", start, quotes.length);
 				for (i = start; i < quotes.length; ++i) {
-					
-					console.log(quotes[i]);
-					
+										
 					if (firstQuote) {
 						firstQuote = false;
 						atr = quotes[i].high - quotes[i].low;
@@ -312,7 +450,7 @@ var Server = function(args) {
 				response.status(200).json([]);
 			});
 
-		})
+		}) 
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
@@ -332,7 +470,6 @@ var Server = function(args) {
 				
 				for (i = quotes.length-1; i > 0 && counter < daysback; --i) {
 					++counter;
-					console.log(quotes[i]);					
 				}
 
 				response.status(200).json(quotes[i+1].close.toFixed(2).replace(".", ","));
@@ -341,15 +478,15 @@ var Server = function(args) {
 				response.status(200).json([]);
 			});
 
-		})
+		})*/
 		
-		
+		/*
 		// ----------------------------------------------------------------------------------------------------------------------------
-		// Kollar om ticker finns, i så fall företagsnamn tillbaks
+		// Kollar om ticker finns på Yahoo, i så fall företagsnamn tillbaks
 		app.get('/company/:ticker', function (request, response) {
 
 			var ticker = request.params.ticker;
-			console.log("Söker efter namn på ticker ", ticker);
+			console.log("Söker efter namn på ticker", ticker);
 			getYahooSnapshot({symbol:ticker, fields:['n']}).then(function(snapshot) {
 				response.status(200).json(snapshot.name);
 			})
@@ -357,6 +494,55 @@ var Server = function(args) {
 				response.status(200).json([]);
 			});
 
+		}) */
+
+
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Kollar om ticker finns på Yahoo, i så fall företagsnamn tillbaks
+		app.get('/company/:ticker', function (request, response) {
+
+			var ticker = request.params.ticker;
+			console.log("Söker efter namn på ticker", ticker);
+			getYahooSnapshot({symbol:ticker, modules: ['price']}).then(function(snapshot) {
+				response.status(200).json(snapshot.price.shortName);
+			})
+			.catch(function(error) {
+				response.status(200).json([]);
+			});
+
+		})
+
+		
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Kollar om ticker finns i munch/quotes
+		app.get('/tickerexists/:ticker', function (request, response) {
+
+			var ticker = request.params.ticker;
+			
+			console.log("Finns ticker", ticker, "?");
+			
+			_poolMunch.getConnection(function(err, connection) {
+				if (!err) {					
+					connection.query('SELECT * FROM quotes WHERE symbol=?', ticker, function(error, rows, fields) {
+						if (!error) {
+							if (rows.length > 0)
+								response.status(200).json(ticker);
+							else
+								response.status(200).json([]);
+						}
+						else {
+							console.log("SELECT * FROM quotes misslyckades: ", error);
+							response.status(200).json([]);					
+						}	
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);					
+				}
+			});
+			
 		})
 		
 		
@@ -369,23 +555,43 @@ var Server = function(args) {
 			_pool.getConnection(function(err, connection) {
 				if (!err) {					
 					console.log("Hämtar alla bevakningar från DB.");
-					connection.query('SELECT * FROM bevakning ORDER BY id', function(error, rows, fields) {
+					connection.query('SELECT * FROM bevakning', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
 								
 								for (var i = 0; i < rows.length; i++) {
-
-									getSMAs(rows[i].ticker, rows[i].namn).then(function(values) {
-										getLatestQuote(values.ticker).then(function(quotes) {
-											
+									getSMAs(rows[i].ticker, rows[i].namn, "", rows[i].typ).then(function(values) {
+										getLatestQuote(values.ticker, values.type).then(function(quotes) {
 											values.quote = quotes.quote;
 											values.previousClose = quotes.previousClose;
+											values.type = quotes.type;
+											
 											result.push(values);
 											
 											tickersComplete++;
 											
-											if (tickersComplete == rows.length)
-												response.status(200).json(result);
+											if (tickersComplete == rows.length) {
+												result.sort(function(a, b) {
+													var typeA=a.type.toLowerCase();
+													var typeB=b.type.toLowerCase();
+													var nameA=a.name.toLowerCase();
+													var nameB=b.name.toLowerCase();
+
+													if (typeA < typeB) //sort string ascending
+														return -1;
+													if (typeA > typeB)
+														return 1;
+													// Samma typ, sortera på namn	
+													if (nameA < nameB)
+														return -1;
+													if (nameA > nameB)
+														return 1;
+
+													return 0;
+												});
+																								
+												response.status(200).json(result);												
+											}
 											
 										})
 										.catch(function(error) {
@@ -421,30 +627,50 @@ var Server = function(args) {
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar allt i trålen
-		app.get('/trawl', function (request, response) {
+		app.get('/trawl/:type', function (request, response) {
 			var result = [];
 			var tickersComplete = 0;
+			var watchType;
+
+			var watchType = request.params.type;
 			
 			_pool.getConnection(function(err, connection) {
 				if (!err) {					
-					console.log("Hämtar allt från trålen.");
-					connection.query('SELECT * FROM trawl', function(error, rows, fields) {
+					console.log("Hämtar från trålen.", watchType);
+					connection.query('SELECT * FROM trawl WHERE type=?', watchType, function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
 								
 								for (var i = 0; i < rows.length; i++) {
-
+									console.log("Hämtar uppgifter för", rows[i].ticker);
 									getSMAs(rows[i].ticker, "", rows[i].id).then(function(values) {
 										getLatestQuote(values.ticker).then(function(quotes) {
 
 											values.quote = quotes.quote;
 											values.previousClose = quotes.previousClose;
+											values.namn = quotes.company;
+											
+											values[7] = (100 * (values[7]/values.quote)).toFixed(2) // ATR14 visas i %
+
 											result.push(values);
 											
 											tickersComplete++;
 											
-											if (tickersComplete == rows.length)
-												response.status(200).json(result);
+											if (tickersComplete == rows.length) {
+												result.sort(function(a, b) {
+													var nameA=a.namn.toLowerCase();
+													var nameB=b.namn.toLowerCase();
+
+													if (nameA < nameB)
+														return -1;
+													if (nameA > nameB)
+														return 1;
+
+													return 0;
+												});
+
+												response.status(200).json(result);												
+											}
 											
 										})
 										.catch(function(error) {
@@ -480,6 +706,38 @@ var Server = function(args) {
 		
 
 		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar aktien med id
+		app.get('/stock/:id', function (request, response) {			
+			
+			var id  = request.params.id;
+			
+			_pool.getConnection(function(err, connection) {
+				if (!err) {					
+					console.log("Hämtar aktien med id=", id);
+					connection.query('SELECT * FROM aktier WHERE såld=0 AND id=' + id, function(error, row, fields) {
+						if (!error) {
+							if (row.length > 0) {
+								response.status(200).json(row);							
+							}
+							else
+								response.status(200).json([]);
+						}
+						else {
+							console.log("Query mot DB misslyckades", error);
+							response.status(200).json([]);					
+						}	
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);					
+				}				
+			});					
+		})
+
+
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
 		app.get('/stocks', function (request, response) {
 			
@@ -489,15 +747,77 @@ var Server = function(args) {
 					connection.query('SELECT * FROM aktier WHERE såld=0', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
+								/* FUnkar inte då symbol bara kan vara en ticker, symbols saknas ännu...
 								var tickerCheckList = [];
 								
 								for (var i = 0; i < rows.length; i++) {
 									tickerCheckList[i] = rows[i].ticker;	
 								};					
+
+								
+								getYahooSnapshot({symbols:tickerCheckList, modules: ['price', 'summaryDetail']}).then(function(snapshot) {
+									var percentage;
+									
+									for (var i = 0; i < Object.keys(snapshot).length; i++) {
+										rows[i].senaste = snapshot[i].price.regularMarketPrice;
+										rows[i].sma50 = snapshot[i].summaryDetail.fiftyDayAverage;
+										rows[i].sma200 = snapshot[i].summaryDetail.twoHundredDayAverage;
+										// Beräkna % med 2 decimaler
+										percentage = (1 - (rows[i].kurs/snapshot[i].price.regularMarketPrice)) * 100;
+										rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+										rows[i].atrStoploss = (rows[i].ATR * rows[i].ATRMultipel) / snapshot[i].price.previousClose;
+										console.log("ATR=", rows[i].ATR, " ATR multipel=", rows[i].ATRMultipel, " Previous close=", snapshot[i].price.previousClose);
+									}
+									response.status(200).json(rows);							
+								})								
+								*/
+								
+								var tickCounter = 0;
+								
+								for (var i = 0; i < rows.length; i++) {
+									
+									getYahooSnapshot({symbol:rows[i].ticker, modules: ['price', 'summaryDetail']}).then(function(snapshot) {
+										var percentage;
+										var rowPointer;
+										
+										for (var j = 0; j < rows.length; j++) {
+											if (rows[j].namn == snapshot.price.symbol) {
+												rowPointer = j;
+												break;
+											}											
+										}										
+
+										console.log(snapshot.price.symbol, rows[rowPointer].namn);
+										
+										rows[rowPointer].senaste = snapshot.price.regularMarketPrice;
+										rows[rowPointer].sma50 = snapshot.summaryDetail.fiftyDayAverage;
+										rows[rowPointer].sma200 = snapshot.summaryDetail.twoHundredDayAverage;
+										// Beräkna % med 2 decimaler
+										percentage = (1 - (rows[rowPointer].kurs/snapshot.price.regularMarketPrice)) * 100;
+										rows[rowPointer].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+										rows[rowPointer].atrStoploss = (rows[rowPointer].ATR * rows[rowPointer].ATRMultipel) / snapshot.price.regularMarketPreviousClose;
+										console.log("ATR=", rows[rowPointer].ATR, " ATR multipel=", rows[rowPointer].ATRMultipel, " Previous close=", snapshot.price.regularMarketPreviousClose);
+										
+										tickCounter++;
+										
+										console.log();
+										
+										if (tickCounter == rows.length) {
+											console.log("Rows=", rows);
+											response.status(200).json(rows);																	
+										}
+										
+									})									
+									
+								};								
+								
+								
+/*								
+								
 																		
 								yahooFinance.snapshot({
 								  symbols: tickerCheckList,
-								  fields: ['l1', 'm3', 'm4', 'p']
+								  modules: ['price', 'summaryDetail']
 								}, function (err, snapshot) {
 									if (err) {
 										console.log(err);	
@@ -507,18 +827,21 @@ var Server = function(args) {
 										var percentage;
 										
 										for (var i = 0; i < Object.keys(snapshot).length; i++) {
-											rows[i].senaste = snapshot[i].lastTradePriceOnly;
-											rows[i].sma50 = snapshot[i]['50DayMovingAverage'];
-											rows[i].sma200 = snapshot[i]['200DayMovingAverage'];
+											rows[i].senaste = snapshot[i].price.regularMarketPrice;
+											rows[i].sma50 = snapshot[i].summaryDetail.fiftyDayAverage;
+											rows[i].sma200 = snapshot[i].summaryDetail.twoHundredDayAverage;
 											// Beräkna % med 2 decimaler
-											percentage = (1 - (rows[i].kurs/snapshot[i].lastTradePriceOnly)) * 100;
+											percentage = (1 - (rows[i].kurs/snapshot[i].price.regularMarketPrice)) * 100;
 											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-											rows[i].atrStoploss = (rows[i].ATR * rows[i].ATRMultipel) / snapshot[i].previousClose;
-											console.log(rows[i].ATR, rows[i].ATRMultipel, snapshot[i].previousClose);
+											rows[i].atrStoploss = (rows[i].ATR * rows[i].ATRMultipel) / snapshot[i].price.previousClose;
+											console.log("ATR=", rows[i].ATR, " ATR multipel=", rows[i].ATRMultipel, " Previous close=", snapshot[i].price.previousClose);
 										}
 										response.status(200).json(rows);							
 									}
 								});
+								
+								*/
+								
 							}
 							else
 								response.status(200).json([]);
@@ -580,25 +903,7 @@ var Server = function(args) {
 					
 					connection.query('SELECT * FROM aktier WHERE såld=0 AND ticker=?', post.ticker, function(err, rows) {
 						if (rows.length > 0) {
-							// Aktien finns
-							if (post.antal > 0) {
-								// Räkna ut nytt anskaffningsvärde
-								console.log("Aktien finns, uppdaterar: ", post, rows[0].id);
-								post.antal = (+post.antal) + (+rows[0].antal);
-								
-								var pkurs = parseFloat(post.kurs);
-								var pantal = parseFloat(post.antal);
-								var rkurs = parseFloat(rows[0].kurs);
-								var rantal = parseFloat(rows[0].antal);
-								
-								post.kurs = (((parseFloat(pkurs) * parseFloat(pantal)) + (parseFloat(rkurs) * parseFloat(rantal))) / (parseFloat(pantal) + parseFloat(rantal))).toFixed(4);								
-							}
-							else {
-								// Vi ska bara uppdatera stop loss, så behåll ursprungligt antal och kurs
-								console.log("Antal är 0, vi sparar med ny stop loss: ", post, rows[0].id);
-								post.antal = rows[0].antal;
-								post.kurs = rows[0].kurs;
-							}
+							console.log("Aktien finns, uppdaterar: ", post);
 							
 							connection.query('UPDATE aktier SET ? WHERE id=?', [post, rows[0].id], function(err, result) {
 								if (err) 
@@ -613,7 +918,6 @@ var Server = function(args) {
 						else {
 							console.log("Aktien finns inte, skapar ny: ", post);
 
-							// Aktien finns inte, lägg upp den
 							connection.query('INSERT INTO aktier SET ?, köpt_datum=NOW()', post, function(err, result) {		
 								if (err)
 									response.status(404).json({error:err});
@@ -698,7 +1002,7 @@ var Server = function(args) {
 
 	function work() {		
 		var Worker = require('./worker.js');
-		var worker = new Worker(_pool);
+		var worker = new Worker(_pool, _poolMunch);
 		
 		worker.run();
 	}

@@ -3,7 +3,7 @@ var config = require('./config.js');
 var tokens = require('./tokens.js');
 
 
-var Worker = module.exports = function(pool) {
+var Worker = module.exports = function(pool, poolMunch) {
 	var _this = this;
 
 	function debug() {
@@ -121,7 +121,7 @@ var Worker = module.exports = function(pool) {
 			
 			var yahoo = require('yahoo-finance');
 			
-			yahoo.snapshot(options, function (error, snapshot) {
+			yahoo.quote(options, function (error, snapshot) {
 
 				try {					
 					if (error)
@@ -142,7 +142,7 @@ var Worker = module.exports = function(pool) {
 	// Hämtar alla aktier (returneras i samma format som i databasen)
 	function getStocks(connection) {
 		return new Promise(function(resolve, reject) {
-			runQuery(connection, 'SELECT * FROM aktier WHERE såld=0').then(function(rows) {
+			runQuery(connection, 'SELECT * FROM aktier').then(function(rows) {
 				resolve(rows);
 			})
 			.catch(function(error) {
@@ -206,7 +206,7 @@ var Worker = module.exports = function(pool) {
 						})
 						.catch(function(error) {
 							connection.release();
-							console.log(error);
+							console.log("Fel:", error);
 						});
 
 					}); 
@@ -214,7 +214,7 @@ var Worker = module.exports = function(pool) {
 				})
 				.catch(function(error) {
 					connection.release();							
-					console.log(error);
+					console.log("Fel:", error);
 				});
 									
 			}
@@ -231,13 +231,13 @@ var Worker = module.exports = function(pool) {
 	function doSomeWorkOnStock(connection, stock) {
 
 		return new Promise(function(resolve, reject) {
-			getYahooSnapshot({symbol:stock.ticker, fields:['l1', 'p']}).then(function(snapshot) {
+			getYahooSnapshot({symbol:stock.ticker, modules: ['price']}).then(function(snapshot) { // Hämta senaste kurs och previousClose
 
 				// Nuvarande utfall mot köpkurs
-				var percentage = (1 - (stock.kurs/snapshot.lastTradePriceOnly)) * 100;
+				var percentage = (1 - (stock.kurs/snapshot.price.regularMarketPrice)) * 100;
 				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 				
-				debug(stock.namn, "Utfall, köpkurs, kurs nu:", percentage, stock.kurs, snapshot.lastTradePriceOnly);
+				debug(stock.namn, "utfall %, köpkurs, kurs nu:", percentage, stock.kurs, snapshot.price.regularMarketPrice);
 
 				// En vektor med det som ska göras för varje aktie
 				var promises = [];				
@@ -248,7 +248,7 @@ var Worker = module.exports = function(pool) {
 					stopLoss = stock.stoplossProcent;		
 				}
 				else if (stock.stoplossTyp == config.stoplossType.StoplossTypeATR) {
-					stopLoss = (stock.ATR * stock.ATRMultipel) / snapshot.previousClose;
+					stopLoss = (stock.ATR * stock.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
 				} 
 				else { // StoplossTypeQuote
 					stopLoss = -1;
@@ -264,65 +264,72 @@ var Worker = module.exports = function(pool) {
 				debug(stock.namn, "har stop loss", stopLoss);
 								
 				if (!stock.larm) {
-					// Kolla stop loss och larma om det behövs	
-					
-					if (stopLoss != -1) {						
-						if (1 - (snapshot.lastTradePriceOnly / stock.maxkurs) > stopLoss) {
+					// Kolla stop loss och larma om det behövs, strunta i detta för sålda aktier	
+					if (stock.såld == 0) {					
+						if (stopLoss != -1) {						
+							if (1 - (snapshot.price.regularMarketPrice / stock.maxkurs) > stopLoss) {
+								
+								console.log(stock.namn, " under släpande stop loss, larma.", stopLoss);
+		
+								// Larma med sms och uppdatera databasen med larmflagga
+								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
+								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+							}						
+						}
+						else {
+							if (snapshot.price.regularMarketPrice < stock.stoplossKurs) {
+								
+								console.log(stock.namn, " under fasta stop loss-kursen, larma.", snapshot.price.regularMarketPrice, stock.stoplossKurs);
+		
+								// Larma med sms och uppdatera databasen med larmflagga
+								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.price.regularMarketPrice));
+								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+							}						
 							
-							console.log(stock.namn, " under släpande stop loss, larma.", stopLoss);
-	
-							// Larma med sms och uppdatera databasen med larmflagga
-							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
-							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
-						}						
+						}					
 					}
-					else {
-						if (snapshot.lastTradePriceOnly < stock.stoplossKurs) {
-							
-							console.log(stock.namn, " under fasta stop loss-kursen, larma.", snapshot.lastTradePriceOnly, stock.stoplossKurs);
-	
-							// Larma med sms och uppdatera databasen med larmflagga
-							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.lastTradePriceOnly));
-							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
-						}						
-						
-					}					
 				}
 				else {
-					// Har vi redan larmat, kolla om vi återhämtat oss? (Måste återhämtat minst 1% för att räknas...)
+					// Har vi redan larmat, kolla om vi återhämtat oss? (Måste återhämtat minst 1% över stoploss för att räknas...)
+					// Kollar ÄVEN sålda aktier om de återhämtat sig
+					
+					var soldTxt = "";
+
+					if (stock.såld == 1)
+						soldTxt = "REDAN SÅLD: ";
 					
 					if (stopLoss != -1) {
-						if ((1 - (snapshot.lastTradePriceOnly / stock.maxkurs)) + 0.01 < stopLoss) {
+						if ((1 - (snapshot.price.regularMarketPrice / stock.maxkurs)) + 0.01 < stopLoss) {
 							
-							console.log(stock.namn, " har återhämtat sig, återställer larm.");
+							console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
 	
 							// Larma med sms och uppdatera databasen med rensad larmflagga
-							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " har återhämtat sig från stop loss, nu " + percentage + "% från köpkursen."));
+							promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " har återhämtat sig från stoploss, nu " + percentage + "% från köpkursen."));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
 						}
 					}
 					else {
-						if (snapshot.lastTradePriceOnly > (stock.stoplossKurs * 1.01)) {
+						if (snapshot.price.regularMarketPrice > (stock.stoplossKurs * 1.01)) {
 							
-							console.log(stock.namn, " har återhämtat sig, återställer larm.");
+							console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
 	
 							// Larma med sms och uppdatera databasen med rensad larmflagga
-							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " är nu över stop loss på fast kurs, nu " + snapshot.lastTradePriceOnly + "."));
+							promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " är nu åter över stoploss på fast kurs, nu " + snapshot.price.regularMarketPrice + "."));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
 						}						
 					}
 				}									
 
 				// Kolla om vi flyger
-				if (!stock.flyger) {
+				if (!stock.flyger && stock.såld == 0) {
 
-					debug(stock.namn, 1 - (stock.kurs / snapshot.lastTradePriceOnly), stopLoss);
+					debug(stock.namn, 1 - (stock.kurs / snapshot.price.regularMarketPrice), stopLoss);
 
 					// Flyger vi? I så fall sätt flyger = sant
 					// Vi flyger om vi tjänar 5% även om stop loss löses ut...
 					
 					if (stopLoss != -1) {					
-						if (1 - (stock.kurs / snapshot.lastTradePriceOnly) > (stopLoss + 0.05)) {
+						if (1 - (stock.kurs / snapshot.price.regularMarketPrice) > (stopLoss + 0.05)) {
 	
 							console.log(stock.namn, "flyger!, meddela och sätt flyger=true");
 							
@@ -332,7 +339,7 @@ var Worker = module.exports = function(pool) {
 						}
 					}
 					else {
-						if (snapshot.lastTradePriceOnly > (stock.kurs * 1.05)) {
+						if (snapshot.price.regularMarketPrice > (stock.kurs * 1.05)) {
 	
 							console.log(stock.namn, "är 5% över inköp, meddela och sätt flyger=true");
 							
@@ -344,12 +351,12 @@ var Worker = module.exports = function(pool) {
 
 				}
 
-				debug("Senaste kurs, maxkurs: ", snapshot.lastTradePriceOnly, stock.maxkurs);
+				debug("Senaste kurs, maxkurs: ", snapshot.price.regularMarketPrice, stock.maxkurs);
 
 				// Ny maxkurs?
-				if (snapshot.lastTradePriceOnly > stock.maxkurs || stock.maxkurs == null || stock.maxkurs == 0) {
-					console.log("Sätter ny maxkurs: ", snapshot.lastTradePriceOnly, stock.ticker);
-					promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.lastTradePriceOnly, stock.id]));
+				if (snapshot.price.regularMarketPrice > stock.maxkurs || stock.maxkurs == null || stock.maxkurs == 0) {
+					console.log("Sätter ny maxkurs: ", snapshot.price.regularMarketPrice, stock.ticker);
+					promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.price.regularMarketPrice, stock.id]));
 				}
 								
 				debug("---");
@@ -375,6 +382,7 @@ var Worker = module.exports = function(pool) {
 
 	function doSomeWork() {
 
+		console.log("----- Kollar stop loss på alla aktier");	 	
 
 		return new Promise(function(resolve, reject) {
 			

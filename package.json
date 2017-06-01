@@ -17,14 +17,15 @@
   },
   "homepage": "https://github.com/joakimbengtson/strecket-server#readme",
   "dependencies": {
-    "body-parser": "^1.15.2",
+    "body-parser": "^1.17.1",
     "commander": "^2.9.0",
-    "cors": "^2.8.1",
-    "express": "^4.14.0",
-    "mysql": "^2.12.0",
-    "node-schedule": "^1.2.0",
+    "cors": "^2.8.3",
+    "express": "^4.15.2",
+    "mysql": "^2.13.0",
+    "node-schedule": "^1.2.1",
+    "react-sparklines": "^1.6.0",
     "twilio": "^2.11.1",
-    "yahoo-finance": "^0.2.14",
-    "yow": "^1.0.26"
+    "yahoo-finance": "^0.2.16",
+    "yow": "^1.0.46"
   }
 }
