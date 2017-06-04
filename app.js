@@ -75,7 +75,7 @@ var Server = function(args) {
 	}
 
 
-	function getYahooSnapshot(options) {
+	function getYahooQuote(options) {
 
 		return new Promise(function(resolve, reject) {
 
@@ -115,143 +115,17 @@ var Server = function(args) {
 		return yyyy + '-' + mm + '-' + dd;
 	}
 
-	/* OLD getSMAs
-	function getSMAs(ticker, name, id, type) {
-		var values = [];
-		var volumes = [];
-		var closes = [];
-		var counter = 0;
-		var i;
-		var sma10Counter = 0;
-		var sma50Counter = 0;
-		var sma200Counter = 0;
-		var volumeCounter = 0;
-		var volumeAdder = 0;
-		var sma10 = 0;
-		var sma50 = 0;
-		var sma200 = 0;
-		var firstQuote = true;
-		var prevClose;
-		var atr;
-
-		return new Promise(function(resolve, reject) {
-
-			var today = getFormattedDate(new Date());
-			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290))); // Hämta minst 200 dagar
-
-			getYahooHistorical({symbol:ticker, from:fromDate, to:today, period: 'd'}).then(function(quotes) {
-
-				for (i = quotes.length-1; counter < 200 || counter < quotes.length; i--) {
-
-					if (counter < 10) {
-						if (typeof quotes[i] != 'undefined') {
-							sma10 = sma10 + quotes[i].close;
-							++sma10Counter;
-						}
-					}
-
-					if (counter < 50) {
-						if (typeof quotes[i] != 'undefined') {
-
-							// Spara stängningskurs för vektor med kurser -> graf
-							closes[sma50Counter] = quotes[i].close;
-
-							sma50 = sma50 + quotes[i].close;
-							++sma50Counter;
-
-							volumeAdder = volumeAdder + quotes[i].volume;
-
-							if ((sma50Counter % 5) == 0) {
-								// Spara snittet på volymen de senaste 5 dagarna
-								volumes[volumeCounter] = Math.floor(volumeAdder/5);
-								volumeAdder = 0;
-								++volumeCounter;
-							}
-
-						}
-					}
-
-					if (counter < 200) {
-						if (typeof quotes[i] != 'undefined') {
-							sma200 = sma200 + quotes[i].close;
-							++sma200Counter;
-						}
-					}
-
-					// Returnera stängning 7, 14 och 21 dagar tillbaks
-					if (counter == 6) {
-						if (typeof quotes[i] != 'undefined')
-							values[3] = quotes[i].close;
-					}
-
-					if (counter == 13) {
-						if (typeof quotes[i] != 'undefined')
-							values[4] = quotes[i].close;
-					}
-
-					if (counter == 20) {
-						if (typeof quotes[i] != 'undefined')
-							values[5] = quotes[i].close;
-					}
-
-					// Beräkna atr(14)
-					if (counter < 14) {
-						if (typeof quotes[i] != 'undefined') {
-							if (firstQuote) {
-								firstQuote = false;
-								atr = quotes[i].high - quotes[i].low;
-							}
-							else {
-								atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));
-							}
-
-							prevClose = quotes[i].close;
-						}
-					}
-
-					++counter;
-
-				}
-
-				values[0] = sma10/sma10Counter;
-				values[1] = sma50/sma50Counter;
-				values[2] = sma200/sma200Counter;
-
-				values[6] = volumes.reverse(); // Äldsta värdet först
-				values[8] = closes.reverse(); // Äldsta värdet först
-
-				if (typeof quotes[quotes.length-1] != 'undefined')
-					values[7] = (100 * ((atr/14)/quotes[quotes.length-1].close)).toFixed(2); // Visa ATR som %
-				else
-					values[7] = 0;
-
-				resolve({values:values, ticker:ticker, name:name, id:id, type:type});
-			})
-			.catch(function(error) {
-				reject(error);
-			});
-
-		});
-
-	} */
 
 	function getSMAs(ticker, name, id, type) {
 		var values = [];
 		var volumes = [];
 		var closes = [];
-		var counter = 0;
-		var sma10 = 0;
-		var sma50 = 0;
-		var sma200 = 0;
-		var firstQuote = true;
-		var prevClose;
-		var atr;
-
+		
 		return new Promise(function(resolve, reject) {
 
 			_poolMunch.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("connection till munch öppnad!");
+					console.log("--- Hämtar SMA:s för", ticker);
 					connection.query('SELECT * FROM stocks WHERE symbol=?', ticker, function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
@@ -262,7 +136,7 @@ var Server = function(args) {
 
 								values[7] = rows[0].ATR14;
 
-								connection.query('select * from quotes where symbol = ? order by date desc limit 30', ticker, function(error, rows, fields) { // Hämta de 30 senaste dagsnoteringarna
+								connection.query('select * from quotes where symbol = ? order by date desc limit 30', rows[0].symbol, function(error, rows, fields) { // Hämta de 30 senaste dagsnoteringarna
 									if (!error) {
 										if (rows.length > 0) {
 											values[3] = rows[6].close;  // Close 7 dagar sen
@@ -275,60 +149,55 @@ var Server = function(args) {
 												volumes[i] = rows[i].volume; // 30 senaste dagars volym
 												closes[i] =  rows[i].close;  // 30 senaste dagars close
 											}
-
+											
 											values[6] = volumes.reverse(); // Äldsta värdet först
 											values[8] = closes.reverse(); // Äldsta värdet först
-
-											console.log("closes", values[8], closes);
+											
+											resolve({values:values, ticker:rows[0].symbol, name:name, id:id, type:type});											
 
 										}
 										else {
 											console.log("select * from quotes where symbol = ? order by date desc limit 30", ticker, "returnerade inget.");
-											response.status(200).json([]);
+											reject(error);
 										}
 									}
 									else {
 										console.log("ERROR: select * from quotes where symbol = ? order by date desc limit 30", error);
-										response.status(200).json([]);
+										reject(error);
 									}
 								});
 
-								resolve({values:values, ticker:ticker, name:name, id:id, type:type});
-
 							}
 							else {
-								console.log("SELECT * FROM stocks WHERE symbol =", ticker, "returnerade inget.");
-								response.status(200).json([]);
+								console.log("Ticker", ticker, "finns inte i 'stocks'.");
+								
+								// Gör en 'tom' retur 
+								values[0] = 0;
+								values[1] = 0;
+								values[2] = 0;
+								values[3] = 0;
+								values[4] = 0;
+								values[5] = 0;
+								values[6] = Array.apply(null, Array(30)).map(Number.prototype.valueOf,0);
+								values[7] = 0;
+								values[8] = values[6].slice();
+								
+								resolve({values:values, ticker:ticker, name:"", id:id, type:type});
 							}
 						}
 						else {
 							console.log("SELECT * FROM stocks misslyckades: ", error);
-							response.status(200).json([]);
+							reject(error);
 						}
 						connection.release();
 					});
 				}
 				else {
 					console.log("Kunde inte skapa en connection: ", err);
-					response.status(200).json([]);
+					reject(error);
 				}
 			});
 
-		});
-
-	}
-
-
-	function getLatestQuote(ticker, type) {
-
-		return new Promise(function(resolve, reject) {
-
-			getYahooSnapshot({symbol:ticker, modules: ['price']}).then(function(snapshot) {
-				resolve({quote:snapshot.price.regularMarketPrice, previousClose:snapshot.price.regularMarketPreviousClose, company:snapshot.price.longName, type:type});
-			})
-			.catch(function(error) {
-				reject(error);
-			});
 		});
 
 	}
@@ -341,161 +210,6 @@ var Server = function(args) {
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
 
-		/*
-		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar SMA 10, 50 eller 200 för ticker
-		app.get('/sma/:count/:ticker', function (request, response) {
-			var ticker = request.params.ticker;
-			var count = request.params.count;
-			var counter = 0;
-			var i;
-			var sma10 = 0;
-			var sma50 = 0;
-			var sma200 = 0;
-			var v;
-
-			console.log("Räknar ut SMA:s på ticker ", ticker);
-
-			var today = getFormattedDate(new Date());
-			var fromDate = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 290)));
-
-			getYahooHistorical({symbol:ticker, from:fromDate, to:today, period: 'd'}).then(function(quotes) {
-
-				console.log("Antal börsdagar :", quotes.length);
-
-				for (i = quotes.length-1; counter < 200; i--) {
-
-					if (counter < 10) {
-						sma10 = sma10 + quotes[i].close;
-					}
-
-					if (counter < 50) {
-						sma50 = sma50 + quotes[i].close;
-					}
-
-					if (counter < 200) {
-						sma200 = sma200 + quotes[i].close;
-					}
-
-					++counter;
-
-				}
-
-				if (count == 10)
-					v = (sma10/10).toFixed(2).replace(".", ",");
-				else if (count == 50)
-					v = (sma50/50).toFixed(2).replace(".", ",");
-				else if (count == 200)
-					v = (sma200/200).toFixed(2).replace(".", ",");
-				else
-					v = -1;
-
-				response.status(200).json(v);
-			})
-			.catch(function(error) {
-				response.status(200).json([]);
-			});
-
-		})
-		*/
-
-		/*
-		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar ATR(14) för ticker
-		app.get('/atr/:ticker', function (request, response) {
-			var ticker = request.params.ticker;
-			var firstQuote = true;
-			var atr;
-			var atrPercent;
-			var atrDate;
-			var prevClose;
-			var start;
-			var i;
-
-			console.log("Räknar ut ATR på ticker ", ticker);
-
-			var today = getFormattedDate(new Date());
-			var twoWeeksAgoish = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23))); // Hämta 23 dagar tillbaks för att vara säker på att få 14 börsdagar
-
-			getYahooHistorical({symbol:ticker, from:twoWeeksAgoish, to:today}).then(function(quotes) {
-
-				start = Math.max(quotes.length - 14, 0);
-				console.log("Start, quotes.length", start, quotes.length);
-				for (i = start; i < quotes.length; ++i) {
-
-					if (firstQuote) {
-						firstQuote = false;
-						atr = quotes[i].high - quotes[i].low;
-					}
-					else {
-						atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));
-					}
-
-					prevClose = quotes[i].close;
-				}
-
-				// ATR(14)
-				atr = atr / 14;
-
-				// Omvandla till %
-				atrPercent = (100 * (atr/quotes[i-1].close)).toFixed(2);
-
-				atrDate = quotes[i-1].date.toISOString().substring(0, 10);
-
-				console.log("ATR=", atr, " % ATR=", atrPercent, " datum=", atrDate);
-
-				response.status(200).json({atr:atr, atrPercent:atrPercent, atrDate:atrDate});
-			})
-			.catch(function(error) {
-				response.status(200).json([]);
-			});
-
-		})
-
-
-		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar stängningskurs för daysback
-		app.get('/close/:daysback/:ticker', function (request, response) {
-			var ticker = request.params.ticker;
-			var daysback = request.params.daysback;
-			var counter = 0;
-			var i;
-
-			var today = getFormattedDate(new Date());
-			var atLeast21DaysBack = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 42))); // Hämta 42 dagar tillbaks för att vara säker på att få 21 börsdagar
-
-			getYahooHistorical({symbol:ticker, from:atLeast21DaysBack, to:today}).then(function(quotes) {
-
-				console.log("quotes.length", quotes.length);
-
-				for (i = quotes.length-1; i > 0 && counter < daysback; --i) {
-					++counter;
-				}
-
-				response.status(200).json(quotes[i+1].close.toFixed(2).replace(".", ","));
-			})
-			.catch(function(error) {
-				response.status(200).json([]);
-			});
-
-		})*/
-
-		/*
-		// ----------------------------------------------------------------------------------------------------------------------------
-		// Kollar om ticker finns på Yahoo, i så fall företagsnamn tillbaks
-		app.get('/company/:ticker', function (request, response) {
-
-			var ticker = request.params.ticker;
-			console.log("Söker efter namn på ticker", ticker);
-			getYahooSnapshot({symbol:ticker, fields:['n']}).then(function(snapshot) {
-				response.status(200).json(snapshot.name);
-			})
-			.catch(function(error) {
-				response.status(200).json([]);
-			});
-
-		}) */
-
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Kollar om ticker finns på Yahoo, i så fall företagsnamn tillbaks
@@ -503,7 +217,7 @@ var Server = function(args) {
 
 			var ticker = request.params.ticker;
 			console.log("Söker efter namn på ticker", ticker);
-			getYahooSnapshot({symbol:ticker, modules: ['price']}).then(function(snapshot) {
+			getYahooQuote({symbol:ticker, modules: ['price']}).then(function(snapshot) {
 				response.status(200).json(snapshot.price.shortName);
 			})
 			.catch(function(error) {
@@ -554,14 +268,15 @@ var Server = function(args) {
 
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("Hämtar alla bevakningar från DB.");
+					console.log("--- Hämtar alla bevakningar från DB.");
 					connection.query('SELECT * FROM bevakning', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
 
 								for (var i = 0; i < rows.length; i++) {
 									getSMAs(rows[i].ticker, rows[i].namn, "", rows[i].typ).then(function(values) {
-										getLatestQuote(values.ticker, values.type).then(function(quotes) {
+										getYahooQuote({symbol:values.ticker, modules: ['price']}).then(function(snapshot) {
+											
 											values.quote = quotes.quote;
 											values.previousClose = quotes.previousClose;
 											values.type = quotes.type;
@@ -633,22 +348,24 @@ var Server = function(args) {
 			var watchType;
 
 			var watchType = request.params.type;
+			
+			if (typeof watchType == 'undefined')
+				watchType = 0;
 
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("Hämtar från trålen.", watchType);
+					console.log("--- Hämtar från trålen.", watchType);
 					connection.query('SELECT * FROM trawl WHERE type=?', watchType, function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
 
 								for (var i = 0; i < rows.length; i++) {
-									console.log("Hämtar uppgifter för", rows[i].ticker);
 									getSMAs(rows[i].ticker, "", rows[i].id).then(function(values) {
-										getLatestQuote(values.ticker).then(function(quotes) {
+										getYahooQuote({symbol:values.ticker, modules: ['price']}).then(function(snapshot) {
 
-											values.quote = quotes.quote;
-											values.previousClose = quotes.previousClose;
-											values.namn = quotes.company;
+											values.quote =          snapshot.price.regularMarketPrice;
+											values.previousClose =  snapshot.price.regularMarketPreviousClose;
+											values.namn =           snapshot.price.longName;
 
 											values[7] = (100 * (values[7]/values.quote)).toFixed(2) // ATR14 visas i %
 
@@ -747,43 +464,23 @@ var Server = function(args) {
 					connection.query('SELECT * FROM aktier WHERE såld=0', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
-								/* FUnkar inte då symbol bara kan vara en ticker, symbols saknas ännu...
-								var tickerCheckList = [];
 
-								for (var i = 0; i < rows.length; i++) {
-									tickerCheckList[i] = rows[i].ticker;
-								};
-
-
-								getYahooSnapshot({symbols:tickerCheckList, modules: ['price', 'summaryDetail']}).then(function(snapshot) {
-									var percentage;
-
-									for (var i = 0; i < Object.keys(snapshot).length; i++) {
-										rows[i].senaste = snapshot[i].price.regularMarketPrice;
-										rows[i].sma50 = snapshot[i].summaryDetail.fiftyDayAverage;
-										rows[i].sma200 = snapshot[i].summaryDetail.twoHundredDayAverage;
-										// Beräkna % med 2 decimaler
-										percentage = (1 - (rows[i].kurs/snapshot[i].price.regularMarketPrice)) * 100;
-										rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-										rows[i].atrStoploss = (rows[i].ATR * rows[i].ATRMultipel) / snapshot[i].price.previousClose;
-										console.log("ATR=", rows[i].ATR, " ATR multipel=", rows[i].ATRMultipel, " Previous close=", snapshot[i].price.previousClose);
-									}
-									response.status(200).json(rows);
-								})
-								*/
-
-								// BEGIN MEG
 								var promise = Promise.resolve();
-
 
 								rows.forEach(function(row) {
 									promise = promise.then(function() {
-										return getYahooSnapshot({symbol:row.ticker, modules: ['price', 'summaryDetail']});
+										return getYahooQuote({symbol:row.ticker, modules: ['price', 'summaryDetail']});
 									})
 									.then(function(snapshot) {
 										row.senaste = snapshot.price.regularMarketPrice;
-										row.sma50 = snapshot.summaryDetail.fiftyDayAverage;
-										row.sma200 = snapshot.summaryDetail.twoHundredDayAverage;
+										row.sma50 =   snapshot.summaryDetail.fiftyDayAverage;
+										row.sma200 =  snapshot.summaryDetail.twoHundredDayAverage;
+										
+										// Beräkna % med 2 decimaler
+										percentage = (1 - (row.kurs/snapshot.price.regularMarketPrice)) * 100;
+										row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+										row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
+										
 										return Promise.resolve();
 									});
 								});
@@ -793,89 +490,14 @@ var Server = function(args) {
 								})
 								.catch(function(error) {
 									response.status(200).json([]);
-
 								});
-
-								// END MEG
-
-								var tickCounter = 0;
-
-
-
-								for (var i = 0; i < rows.length; i++) {
-
-									getYahooSnapshot({symbol:rows[i].ticker, modules: ['price', 'summaryDetail']}).then(function(snapshot) {
-										var percentage;
-										var rowPointer;
-
-										for (var j = 0; j < rows.length; j++) {
-											if (rows[j].namn == snapshot.price.symbol) {
-												rowPointer = j;
-												break;
-											}
-										}
-
-										console.log(snapshot.price.symbol, rows[rowPointer].namn);
-
-										rows[rowPointer].senaste = snapshot.price.regularMarketPrice;
-										rows[rowPointer].sma50 = snapshot.summaryDetail.fiftyDayAverage;
-										rows[rowPointer].sma200 = snapshot.summaryDetail.twoHundredDayAverage;
-										// Beräkna % med 2 decimaler
-										percentage = (1 - (rows[rowPointer].kurs/snapshot.price.regularMarketPrice)) * 100;
-										rows[rowPointer].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-										rows[rowPointer].atrStoploss = (rows[rowPointer].ATR * rows[rowPointer].ATRMultipel) / snapshot.price.regularMarketPreviousClose;
-										console.log("ATR=", rows[rowPointer].ATR, " ATR multipel=", rows[rowPointer].ATRMultipel, " Previous close=", snapshot.price.regularMarketPreviousClose);
-
-										tickCounter++;
-
-										console.log();
-
-										if (tickCounter == rows.length) {
-											console.log("Rows=", rows);
-											response.status(200).json(rows);
-										}
-
-									})
-
-								};
-
-
-/*
-
-
-								yahooFinance.snapshot({
-								  symbols: tickerCheckList,
-								  modules: ['price', 'summaryDetail']
-								}, function (err, snapshot) {
-									if (err) {
-										console.log(err);
-										response.status(404).json({error:err});
-									}
-									else {
-										var percentage;
-
-										for (var i = 0; i < Object.keys(snapshot).length; i++) {
-											rows[i].senaste = snapshot[i].price.regularMarketPrice;
-											rows[i].sma50 = snapshot[i].summaryDetail.fiftyDayAverage;
-											rows[i].sma200 = snapshot[i].summaryDetail.twoHundredDayAverage;
-											// Beräkna % med 2 decimaler
-											percentage = (1 - (rows[i].kurs/snapshot[i].price.regularMarketPrice)) * 100;
-											rows[i].utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-											rows[i].atrStoploss = (rows[i].ATR * rows[i].ATRMultipel) / snapshot[i].price.previousClose;
-											console.log("ATR=", rows[i].ATR, " ATR multipel=", rows[i].ATRMultipel, " Previous close=", snapshot[i].price.previousClose);
-										}
-										response.status(200).json(rows);
-									}
-								});
-
-								*/
 
 							}
 							else
 								response.status(200).json([]);
 						}
 						else {
-							console.log("SELECT * FROM aktier misslyckades: ", error);
+							console.log("'SELECT * FROM aktier WHERE såld=0' misslyckades: ", error);
 							response.status(200).json([]);
 						}
 						connection.release();
