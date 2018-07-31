@@ -5,7 +5,7 @@ var tokens = require('./tokens.js');
 
 var Worker = module.exports = function(pool, poolMunch) {
 	var _this = this;
-
+	
 	function debug() {
 		if (true)
 			console.log.apply(null, arguments);
@@ -76,16 +76,30 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 			var client = require('twilio')(tokens.TWILIO_ACCOUNT_SID, tokens.TWILIO_AUTH_TOKEN);			 
 
+			client.messages
+			  .create({
+			     body: txtMsg,
+			     from: '+46769447443',
+			     to: '+46703489493'
+			   })
+			  .then(message => console.log(message.sid))
+			  .done();
+
+
+/* OLD API?!
 			client.sendSms({
 				    to: '+46703489493',
 				    from:'+46769447443',
 				    body: txtMsg
 			}, function(error, message) {
-			    if (error)
-					reject(error);				    
+			    if (error) {
+				    console.log("sendSMS:", error);
+					reject(error);				    				    
+			    }
 				else
 					resolve();
 			});				
+*/
 		});		
 	}
 
@@ -151,7 +165,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 		});
 	};
 	
-	
+	/* OLD 
 	function calculateATR() {
 		var firstQuote;
 		var atr;
@@ -224,6 +238,68 @@ var Worker = module.exports = function(pool, poolMunch) {
 			
 		});		
 						
+	};*/
+
+
+	function calculateATR() {
+		var stocksCount = 0;
+		
+		console.log("----- Hämtar ATR från Munch för alla aktier");
+		
+		pool.getConnection(function(error, connection) {
+			if (!error) {
+				
+				poolMunch.getConnection(function(error, munchConnection) {
+					if (!error) {
+
+						// Hämta hela aktie-tabellen
+						getStocks(connection).then(function(stocks) {
+		
+							stocks.forEach(function(stock) {
+								runQuery(munchConnection, 'SELECT ATR14 FROM stocks WHERE symbol=?', [stock.ticker]).then(function(rows) {
+									if (rows.length > 0) {
+
+										console.log("Ny ATR för ", stock.ticker, "är", rows[0].ATR14, "föregående ATR", stock.ATR);
+										
+										connection.query('UPDATE aktier SET ATR=? WHERE id=?', [rows[0].ATR14, stock.id]);
+									}
+									else
+										console.log(stock.ticker, "finns inte i Munch/stocks.");
+																										
+									++stocksCount;
+																				
+									if (stocksCount == stocks.length) {
+										console.log("----- Klar ATR");		
+										connection.release();
+										munchConnection.release();								
+									}											
+								})
+								.catch(function(error) {
+									connection.release();
+									munchConnection.release();																	
+									console.log("Error:calculateATR:runQuery:", error);
+								});
+							}); 
+		
+						})
+						.catch(function(error) {
+							connection.release();							
+							munchConnection.release();																	
+							console.log("Error:calculateATR:getStocks:", error);
+						});
+											
+					}
+					else {
+						console.log("Kunde inte skapa en connection: ", error);
+					}
+				});		
+			}	
+			else {
+				console.log("Kunde inte skapa en connection: ", error);
+			}
+			
+		});		
+						
 	};
 
 
@@ -248,7 +324,12 @@ var Worker = module.exports = function(pool, poolMunch) {
 					stopLoss = stock.stoplossProcent;		
 				}
 				else if (stock.stoplossTyp == config.stoplossType.StoplossTypeATR) {
-					stopLoss = (stock.ATR * stock.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
+					if (stock.ATR != null && stock.ATR != 0) 
+						stopLoss = (stock.ATR * stock.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
+					else {
+						console.log(stock.namn, " saknar ATR.");
+						stopLoss = 0.03; // Sätt 3% som default
+					}
 				} 
 				else { // StoplossTypeQuote
 					stopLoss = -1;
@@ -433,16 +514,19 @@ var Worker = module.exports = function(pool, poolMunch) {
 	};
 
 	function work() {
-
+		
 		doSomeWork().then(function() {
+			
 			setTimeout(work, config.checkIntervalInSeconds * 1000);
+			//calculateATR();
+			
+
 		})
 
 		.catch(function(error) {
 			// Om något blev fel, överhuvudtaget (!), så skriv ut hela stacken till konsollen,
 			// med radnummer och allt...
 			console.log("Fel: ", error);
-			//console.log("Fel: ", error.stack);
 
 			// Och börja om igen
 			setTimeout(work, config.checkIntervalInSeconds * 1000);
@@ -456,8 +540,9 @@ var Worker = module.exports = function(pool, poolMunch) {
 		var rule = new schedule.RecurrenceRule();
 		rule.hour = 14;
 		rule.minute = 0;
-		 
+				 
 		schedule.scheduleJob(rule, function() {
+			console.log("Scheduled job: calculate ATR");			
 			calculateATR();
 		});		
 		
@@ -465,6 +550,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 
 	this.run = function() {
+		sendSMS("Strecket Server startar!")
 		work();
 	};
 

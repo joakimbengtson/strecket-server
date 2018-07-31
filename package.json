@@ -24,8 +24,8 @@
     "mysql": "^2.13.0",
     "node-schedule": "^1.2.1",
     "react-sparklines": "^1.6.0",
-    "twilio": "^2.11.1",
-    "yahoo-finance": "^0.2.16",
+    "twilio": "^3.6.6",
+    "yahoo-finance": "^0.3.2",
     "yow": "^1.0.46"
   }
 }
