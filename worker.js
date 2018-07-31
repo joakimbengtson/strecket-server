@@ -85,21 +85,6 @@ var Worker = module.exports = function(pool, poolMunch) {
 			  .then(message => console.log(message.sid))
 			  .done();
 
-
-/* OLD API?!
-			client.sendSms({
-				    to: '+46703489493',
-				    from:'+46769447443',
-				    body: txtMsg
-			}, function(error, message) {
-			    if (error) {
-				    console.log("sendSMS:", error);
-					reject(error);				    				    
-			    }
-				else
-					resolve();
-			});				
-*/
 		});		
 	}
 
