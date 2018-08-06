@@ -332,7 +332,7 @@ var Server = function(args) {
 		app.get('/atr/:ticker', function (request, response) {
 
 			var ticker = request.params.ticker;
-			console.log("Söker efter ATR på ticker", ticker);
+			console.log("----> Söker efter ATR på ticker", ticker);
 
 			_poolMunch.getConnection(function(err, connection) {
 				if (!err) {
@@ -341,16 +341,19 @@ var Server = function(args) {
 							if (rows.length > 0) {
 							
 								getYahooQuote({symbol:ticker, modules: ['price']}).then(function(snapshot) {
+									console.log("ATR14=", rows[0].ATR14, "Close day before=", snapshot.price.regularMarketPreviousClose);
 									atrPercentage = rows[0].ATR14 / snapshot.price.regularMarketPreviousClose;
+									response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage});
 								})
 								.catch(function(error) {
 									response.status(200).json([]);
 								});
 							
-								response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage});
 							}
-							else
-								response.status(200).json([]);
+							else {
+								console.log("Ticker not found.");
+								response.status(200).json([]);								
+							}
 						}
 						else {
 							console.log("SELECT * FROM stocks misslyckades: ", error);
@@ -374,7 +377,7 @@ var Server = function(args) {
 
 			var ticker = request.params.ticker;
 
-			console.log("Finns ticker", ticker, "?");
+			console.log("----> Finns ticker", ticker, "?");
 
 			_poolMunch.getConnection(function(err, connection) {
 				if (!err) {
@@ -409,7 +412,7 @@ var Server = function(args) {
 
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("--- Hämtar alla bevakningar från DB.");
+					console.log("----> Hämtar alla bevakningar från DB.");
 					connection.query('SELECT * FROM bevakning', function(error, rows, fields) {
 						if (!error) {
 							if (rows.length > 0) {
@@ -496,7 +499,7 @@ var Server = function(args) {
 
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("--- Hämtar från trålen", watchType);
+					console.log("----> Hämtar från trålen", watchType);
 					
 					getSPY30Days().then(function() {
 					
