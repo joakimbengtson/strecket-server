@@ -86,6 +86,9 @@ var Worker = module.exports = function(pool, poolMunch) {
 				  resolve();
 				  console.log(message.sid)
 			  })
+			  .catch(function(error) {
+				  reject(error);
+			  })
 			  .done(function() {
 				  // ???
 			  });
