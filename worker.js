@@ -5,27 +5,27 @@ var tokens = require('./tokens.js');
 
 var Worker = module.exports = function(pool, poolMunch) {
 	var _this = this;
-	
+
 	function debug() {
 		if (true)
 			console.log.apply(null, arguments);
 	};
-	
+
 	function getFormattedDate(d) {
 		var dd = d.getDate();
 		var mm = d.getMonth()+1; //January is 0!
 		var yyyy = d.getFullYear();
-		
+
 		if (dd < 10) {
 		    dd = '0' + dd;
-		} 
-		
+		}
+
 		if(mm < 10) {
 		    mm = '0' + mm;
-		} 
-		
-		return yyyy + '-' + mm + '-' + dd;		
-	}	
+		}
+
+		return yyyy + '-' + mm + '-' + dd;
+	}
 
 	// Gör om en mysql-fråga till en promise för att slippa callbacks/results/errors
 	function runQuery(connection, sql, options) {
@@ -40,7 +40,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 			// Skriver ut frågan helt enkelt i klartext
 			debug("Query: ", query.sql);
- 
+
 		});
 
 	}
@@ -69,12 +69,26 @@ var Worker = module.exports = function(pool, poolMunch) {
 		});
 
 	}
-	
+
 	// Skickar sms till jbn
 	function sendSMS(txtMsg) {
 		return new Promise(function(resolve, reject) {
 
-			var client = require('twilio')(tokens.TWILIO_ACCOUNT_SID, tokens.TWILIO_AUTH_TOKEN);			 
+			var client = require('twilio')(tokens.TWILIO_ACCOUNT_SID, tokens.TWILIO_AUTH_TOKEN);
+
+			client.messages
+			  .create({
+			     body: txtMsg,
+			     from: '+46769447443',
+			     to: '+46703489493'
+			   })
+			  .then(function(message) {
+				  resolve();
+				  console.log(message.sid)
+			  })
+			  .done(function() {
+				  // ???
+			  });
 
 			client.messages
 			  .create({
@@ -94,25 +108,25 @@ var Worker = module.exports = function(pool, poolMunch) {
 			}, function(error, message) {
 			    if (error) {
 				    console.log("sendSMS:", error);
-					reject(error);				    				    
+					reject(error);
 			    }
 				else
 					resolve();
-			});				
+			});
 */
-		});		
+		});
 	}
 
-	
+
 	function getYahooHistorical(options) {
 
 		return new Promise(function(resolve, reject) {
-			
+
 			var yahoo = require('yahoo-finance');
-			
+
 			yahoo.historical(options, function (error, quotes) {
 
-				try {					
+				try {
 					if (error)
 						reject(error);
 					else
@@ -121,23 +135,23 @@ var Worker = module.exports = function(pool, poolMunch) {
 				catch (error) {
 					reject(error);
 				}
-						
+
 			});
-			
+
 		});
 	}
-	
+
 
 	// Hämtar ett snapshot för en aktie från Yahoo (snapshot blir som parameter i .then())
 	function getYahooSnapshot(options) {
 
 		return new Promise(function(resolve, reject) {
-			
+
 			var yahoo = require('yahoo-finance');
-			
+
 			yahoo.quote(options, function (error, snapshot) {
 
-				try {					
+				try {
 					if (error)
 						reject(error);
 					else
@@ -146,13 +160,13 @@ var Worker = module.exports = function(pool, poolMunch) {
 				catch (error) {
 					reject(error);
 				}
-						
+
 			});
-			
+
 		});
 	}
-	
-	
+
+
 	// Hämtar alla aktier (returneras i samma format som i databasen)
 	function getStocks(connection) {
 		return new Promise(function(resolve, reject) {
@@ -164,8 +178,8 @@ var Worker = module.exports = function(pool, poolMunch) {
 			});
 		});
 	};
-	
-	/* OLD 
+
+	/* OLD
 	function calculateATR() {
 		var firstQuote;
 		var atr;
@@ -175,9 +189,9 @@ var Worker = module.exports = function(pool, poolMunch) {
 		var twoWeeksAgoish = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23))); // Hämta 23 dagar tillbaks för att vara säker på att få 14 börsdagar
 		var i;
 		var stocksCount = 0;
-		
-		console.log("----- Räknar ut ATR på alla aktier");		
-		
+
+		console.log("----- Räknar ut ATR på alla aktier");
+
 		pool.getConnection(function(error, connection) {
 
 			if (!error) {
@@ -187,119 +201,119 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 					stocks.forEach(function(stock) {
 						getYahooHistorical({symbol:stock.ticker, from:twoWeeksAgoish, to:today}).then(function(quotes) {
-				
+
 							start = Math.max(quotes.length - 14, 0);
 							firstQuote = true;
 
 							for (i = start; i < quotes.length; ++i) {
-																
+
 								if (firstQuote) {
 									firstQuote = false;
 									atr = quotes[i].high - quotes[i].low;
 								}
 								else {
-									atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));						
+									atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));
 								}
-								
+
 								prevClose = quotes[i].close;
 							}
-						
+
 							// ATR(14)
 							atr = atr / 14;
 							console.log("Ny ATR för ", stock.ticker, "är", atr, "föregående ATR", stock.ATR);
-							
+
 							connection.query('UPDATE aktier SET ATR=? WHERE id=?', [atr, stock.id]);
-														
+
 							++stocksCount;
-																		
+
 							if (stocksCount == stocks.length) {
-								console.log("----- Klar ATR");		
-								connection.release();								
+								console.log("----- Klar ATR");
+								connection.release();
 							}
-											
+
 						})
 						.catch(function(error) {
 							connection.release();
 							console.log("Fel:", error);
 						});
 
-					}); 
+					});
 
 				})
 				.catch(function(error) {
-					connection.release();							
+					connection.release();
 					console.log("Fel:", error);
 				});
-									
+
 			}
 			else {
 				console.log("Kunde inte skapa en connection: ", error);
 			}
-			
-		});		
-						
+
+		});
+
 	};*/
 
 
 	function calculateATR() {
 		var stocksCount = 0;
-		
+
 		console.log("----- Hämtar ATR från Munch för alla aktier");
-		
+
 		pool.getConnection(function(error, connection) {
 			if (!error) {
-				
+
 				poolMunch.getConnection(function(error, munchConnection) {
 					if (!error) {
 
 						// Hämta hela aktie-tabellen
 						getStocks(connection).then(function(stocks) {
-		
+
 							stocks.forEach(function(stock) {
 								runQuery(munchConnection, 'SELECT ATR14 FROM stocks WHERE symbol=?', [stock.ticker]).then(function(rows) {
 									if (rows.length > 0) {
 
 										console.log("Ny ATR för ", stock.ticker, "är", rows[0].ATR14, "föregående ATR", stock.ATR);
-										
+
 										connection.query('UPDATE aktier SET ATR=? WHERE id=?', [rows[0].ATR14, stock.id]);
 									}
 									else
 										console.log(stock.ticker, "finns inte i Munch/stocks.");
-																										
+
 									++stocksCount;
-																				
+
 									if (stocksCount == stocks.length) {
-										console.log("----- Klar ATR");		
+										console.log("----- Klar ATR");
 										connection.release();
-										munchConnection.release();								
-									}											
+										munchConnection.release();
+									}
 								})
 								.catch(function(error) {
 									connection.release();
-									munchConnection.release();																	
+									munchConnection.release();
 									console.log("Error:calculateATR:runQuery:", error);
 								});
-							}); 
-		
+							});
+
 						})
 						.catch(function(error) {
-							connection.release();							
-							munchConnection.release();																	
+							connection.release();
+							munchConnection.release();
 							console.log("Error:calculateATR:getStocks:", error);
 						});
-											
+
 					}
 					else {
 						console.log("Kunde inte skapa en connection: ", error);
 					}
-				});		
-			}	
+				});
+			}
 			else {
 				console.log("Kunde inte skapa en connection: ", error);
 			}
-			
-		});		
-						
+
+		});
+
 	};
 
 
@@ -312,25 +326,25 @@ var Worker = module.exports = function(pool, poolMunch) {
 				// Nuvarande utfall mot köpkurs
 				var percentage = (1 - (stock.kurs/snapshot.price.regularMarketPrice)) * 100;
 				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-				
+
 				debug(stock.namn, "utfall %, köpkurs, kurs nu:", percentage, stock.kurs, snapshot.price.regularMarketPrice);
 
 				// En vektor med det som ska göras för varje aktie
-				var promises = [];				
+				var promises = [];
 				var stopLoss;
-				
+
 				// Räkna ut stop loss
 				if (stock.stoplossTyp == config.stoplossType.StoplossTypePercent) {
-					stopLoss = stock.stoplossProcent;		
+					stopLoss = stock.stoplossProcent;
 				}
 				else if (stock.stoplossTyp == config.stoplossType.StoplossTypeATR) {
-					if (stock.ATR != null && stock.ATR != 0) 
+					if (stock.ATR != null && stock.ATR != 0)
 						stopLoss = (stock.ATR * stock.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
 					else {
 						console.log(stock.namn, " saknar ATR.");
 						stopLoss = 0.03; // Sätt 3% som default
 					}
-				} 
+				}
 				else { // StoplossTypeQuote
 					stopLoss = -1;
 				}
@@ -341,49 +355,49 @@ var Worker = module.exports = function(pool, poolMunch) {
 					stopLoss = stopLoss + (percentage/1000);
 				}
 
-				
+
 				debug(stock.namn, "har stop loss", stopLoss);
-								
+
 				if (!stock.larm) {
-					// Kolla stop loss och larma om det behövs, strunta i detta för sålda aktier	
-					if (stock.såld == 0) {					
-						if (stopLoss != -1) {						
+					// Kolla stop loss och larma om det behövs, strunta i detta för sålda aktier
+					if (stock.såld == 0) {
+						if (stopLoss != -1) {
 							if (1 - (snapshot.price.regularMarketPrice / stock.maxkurs) > stopLoss) {
-								
+
 								console.log(stock.namn, " under släpande stop loss, larma.", stopLoss);
-		
+
 								// Larma med sms och uppdatera databasen med larmflagga
 								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
 								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
-							}						
+							}
 						}
 						else {
 							if (snapshot.price.regularMarketPrice < stock.stoplossKurs) {
-								
+
 								console.log(stock.namn, " under fasta stop loss-kursen, larma.", snapshot.price.regularMarketPrice, stock.stoplossKurs);
-		
+
 								// Larma med sms och uppdatera databasen med larmflagga
 								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.price.regularMarketPrice));
 								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
-							}						
-							
-						}					
+							}
+
+						}
 					}
 				}
 				else {
 					// Har vi redan larmat, kolla om vi återhämtat oss? (Måste återhämtat minst 1% över stoploss för att räknas...)
 					// Kollar ÄVEN sålda aktier om de återhämtat sig
-					
+
 					var soldTxt = "";
 
 					if (stock.såld == 1)
 						soldTxt = "REDAN SÅLD: ";
-					
+
 					if (stopLoss != -1) {
 						if ((1 - (snapshot.price.regularMarketPrice / stock.maxkurs)) + 0.01 < stopLoss) {
-							
+
 							console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
-	
+
 							// Larma med sms och uppdatera databasen med rensad larmflagga
 							promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " har återhämtat sig från stoploss, nu " + percentage + "% från köpkursen."));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
@@ -391,15 +405,15 @@ var Worker = module.exports = function(pool, poolMunch) {
 					}
 					else {
 						if (snapshot.price.regularMarketPrice > (stock.stoplossKurs * 1.01)) {
-							
+
 							console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
-	
+
 							// Larma med sms och uppdatera databasen med rensad larmflagga
 							promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " är nu åter över stoploss på fast kurs, nu " + snapshot.price.regularMarketPrice + "."));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
-						}						
+						}
 					}
-				}									
+				}
 
 				// Kolla om vi flyger
 				if (!stock.flyger && stock.såld == 0) {
@@ -408,12 +422,12 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 					// Flyger vi? I så fall sätt flyger = sant
 					// Vi flyger om vi tjänar 5% även om stop loss löses ut...
-					
-					if (stopLoss != -1) {					
+
+					if (stopLoss != -1) {
 						if (1 - (stock.kurs / snapshot.price.regularMarketPrice) > (stopLoss + 0.05)) {
-	
+
 							console.log(stock.namn, "flyger!, meddela och sätt flyger=true");
-							
+
 							// Meddela med sms och uppdatera databasen med flyger=1
 							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " flyger!! (" + percentage + "%)."));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
@@ -421,9 +435,9 @@ var Worker = module.exports = function(pool, poolMunch) {
 					}
 					else {
 						if (snapshot.price.regularMarketPrice > (stock.kurs * 1.05)) {
-	
+
 							console.log(stock.namn, "är 5% över inköp, meddela och sätt flyger=true");
-							
+
 							// Meddela med sms och uppdatera databasen med flyger=1
 							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " är 5% över inköpskurs!"));
 							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
@@ -439,7 +453,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 					console.log("Sätter ny maxkurs: ", snapshot.price.regularMarketPrice, stock.ticker);
 					promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.price.regularMarketPrice, stock.id]));
 				}
-								
+
 				debug("---");
 
 				// Kör alla promises som ligger i kö sekventiellt
@@ -455,7 +469,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 				// Om något misslyckas, gör så att denna metod också misslyckas
 				reject(error);
 			});
-			
+
 		});
 
 	}
@@ -463,29 +477,29 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 	function doSomeWork() {
 
-		console.log("----- Kollar stop loss på alla aktier");	 	
+		console.log("----- Kollar stop loss på alla aktier");
 
 		return new Promise(function(resolve, reject) {
-			
+
 			pool.getConnection(function(error, connection) {
 
 				if (!error) {
 
 					debug("Sekunder mellan koll", config.checkIntervalInSeconds);
-	
+
 					// Hämta hela aktie-tabellen
 					getStocks(connection).then(function(stocks) {
-	
+
 						// Vektorn med jobb som ska utföras
 						var promises = [];
-	
+
 						// Lägg till ett jobb för varje aktie...
 						stocks.forEach(function(stock) {
 							// Att anropa xxx.bind() gör att parametrar automatiskt skickas till funktionen när
 							// den anropas även utan parametrar (null i detta fall är värdet av 'this')
 							promises.push(doSomeWorkOnStock.bind(_this, connection, stock));
-						}); 
-	
+						});
+
 						// runPromises() kör alla promises sekventiellt, antingen lyckas alla eller så blir det ett fel
 						runPromises(promises).then(function() {
 							connection.release();
@@ -495,31 +509,31 @@ var Worker = module.exports = function(pool, poolMunch) {
 							connection.release();
 							reject(error);
 						});
-	
+
 					})
 					.catch(function(error) {
-						connection.release();							
+						connection.release();
 						reject(error);
 					});
-										
+
 				}
 				else {
 					console.log("Kunde inte skapa en connection: ", error);
-					reject(error);					
+					reject(error);
 				}
-				
+
 			});
 
 		});
 	};
 
 	function work() {
-		
+
 		doSomeWork().then(function() {
-			
+
 			setTimeout(work, config.checkIntervalInSeconds * 1000);
 			//calculateATR();
-			
+
 
 		})
 
@@ -536,16 +550,16 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 	function init() {
 		var schedule = require('node-schedule');
-		
+
 		var rule = new schedule.RecurrenceRule();
 		rule.hour = 14;
 		rule.minute = 0;
-				 
+
 		schedule.scheduleJob(rule, function() {
-			console.log("Scheduled job: calculate ATR");			
+			console.log("Scheduled job: calculate ATR");
 			calculateATR();
-		});		
-		
+		});
+
 	};
 
 
