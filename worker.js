@@ -83,25 +83,16 @@ var Worker = module.exports = function(pool, poolMunch) {
 			     to: '+46703489493'
 			   })
 			  .then(function(message) {
+				  console.log("SMS--->", message.sid, message.body);
 				  resolve();
-				  console.log(message.sid)
 			  })
 			  .catch(function(error) {
+				  console.log("FEL sendSMS:", error);
 				  reject(error);
 			  })
 			  .done(function() {
 				  // ???
 			  });
-
-			client.messages
-			  .create({
-			     body: txtMsg,
-			     from: '+46769447443',
-			     to: '+46703489493'
-			   })
-			  .then(message => console.log(message.sid))
-			  .done();
-
 
 /* OLD API?!
 			client.sendSms({
@@ -330,7 +321,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 				var percentage = (1 - (stock.kurs/snapshot.price.regularMarketPrice)) * 100;
 				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 
-				debug(stock.namn, "utfall %, köpkurs, kurs nu:", percentage, stock.kurs, snapshot.price.regularMarketPrice);
+				debug(stock.namn, "utfall=", percentage, "%, köpkurs=", stock.kurs, ", kurs nu=", snapshot.price.regularMarketPrice);
 
 				// En vektor med det som ska göras för varje aktie
 				var promises = [];
@@ -418,7 +409,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 					}
 				}
 
-				// Kolla om vi flyger
+/*				// Kolla om vi flyger
 				if (!stock.flyger && stock.såld == 0) {
 
 					debug(stock.namn, 1 - (stock.kurs / snapshot.price.regularMarketPrice), stopLoss);
@@ -448,8 +439,9 @@ var Worker = module.exports = function(pool, poolMunch) {
 					}
 
 				}
+*/
 
-				debug("Senaste kurs, maxkurs: ", snapshot.price.regularMarketPrice, stock.maxkurs);
+				debug("Senaste kurs=", snapshot.price.regularMarketPrice, ", maxkurs=", stock.maxkurs);
 
 				// Ny maxkurs?
 				if (snapshot.price.regularMarketPrice > stock.maxkurs || stock.maxkurs == null || stock.maxkurs == 0) {
@@ -567,7 +559,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 
 	this.run = function() {
-		sendSMS("Strecket Server startar!")
+		//sendSMS("Strecket Server startar!")
 		work();
 	};
 

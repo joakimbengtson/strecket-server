@@ -330,27 +330,50 @@ var Server = function(args) {
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Hämtar ATR för ticker
 		app.get('/atr/:ticker', function (request, response) {
-
+			var atrPercentage;
 			var ticker = request.params.ticker;
+			
 			console.log("Söker efter ATR på ticker", ticker);
 
 			_poolMunch.getConnection(function(err, connection) {
 				if (!err) {
 					connection.query('SELECT * FROM stocks WHERE symbol=?', ticker, function(error, rows, fields) {
 						if (!error) {
-							if (rows.length > 0) {
 							
-								getYahooQuote({symbol:ticker, modules: ['price']}).then(function(snapshot) {
+							if (rows.length == 0)
+								console.log(ticker, "finns inte i Munch");
+							
+							getYahooQuote({symbol:ticker, modules: ['price', 'calendarEvents']}).then(function(snapshot) {
+								console.log("getYahooQuote", ticker, snapshot);
+								if (rows.length > 0) {
 									atrPercentage = rows[0].ATR14 / snapshot.price.regularMarketPreviousClose;
+									response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage, earningsDate:snapshot.calendarEvents.earnings.earningsDate});									
+								}
+								else
+									response.status(200).json({ATR:"n/a", atrPercentage:"n/a", earningsDate:snapshot.calendarEvents.earnings.earningsDate});							
+							})
+							.catch(function(error) {
+								console.log("Fel i getYahooQuote", ticker, error);
+								if (rows.length > 0)
+									response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage, earningsDate:"n/a"});
+								else
+									response.status(200).json({ATR:"n/a", atrPercentage:"n/a", earningsDate:"n/a"});							
+							});
+
+/*							if (rows.length > 0) {
+							
+								getYahooQuote({symbol:ticker, modules: ['price', 'calendarEvents']}).then(function(snapshot) {
+									atrPercentage = rows[0].ATR14 / snapshot.price.regularMarketPreviousClose;
+									response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage, earningsDate:snapshot.calendarEvents.earnings.earningsDate});
 								})
 								.catch(function(error) {
 									response.status(200).json([]);
 								});
-							
-								response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage});
+								
 							}
 							else
-								response.status(200).json([]);
+								response.status(200).json([{ATR:"n/a", atrPercentage:"n/a", earningsDate:snapshot.calendarEvents.earnings.earningsDate}]);
+*/
 						}
 						else {
 							console.log("SELECT * FROM stocks misslyckades: ", error);
@@ -603,7 +626,7 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("Hämtar aktien med id=", id);
+					console.log("/stock/:id Hämtar aktien med id=", id);
 					connection.query('SELECT * FROM aktier WHERE såld=0 AND id=' + id, function(error, row, fields) {
 						if (!error) {
 							if (row.length > 0) {
@@ -642,7 +665,7 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 
 								rows.forEach(function(row) {
 									promise = promise.then(function() {
-										return getYahooQuote({symbol:row.ticker, modules: ['price', 'summaryDetail', 'summaryProfile']});
+										return getYahooQuote({symbol:row.ticker, modules: ['price', 'summaryDetail', 'summaryProfile', 'calendarEvents']});
 									})
 									.then(function(snapshot) {
 										row.senaste = snapshot.price.regularMarketPrice;
@@ -665,9 +688,14 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 										
 										// Beräkna % med 2 decimaler
 										percentage = (1 - (row.kurs/snapshot.price.regularMarketPrice)) * 100;
+										
 										row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 										row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
-										console.log("ticker, utfall", row.ticker, row.utfall);
+										row.earningsDate = snapshot.calendarEvents.earnings.earningsDate;
+										row.utdelning = snapshot.summaryDetail.dividendYield * 100;
+										
+										console.log("ticker=", row.ticker,  "utfall=", row.utfall);
+										
 										return Promise.resolve();
 									});
 								});
