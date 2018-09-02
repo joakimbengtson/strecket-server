@@ -91,7 +91,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 				  reject(error);
 			  })
 			  .done(function() {
-				  // ???
+				  // ??? JBN
 			  });
 
 		});
