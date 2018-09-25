@@ -395,38 +395,6 @@ var Worker = module.exports = function(pool, poolMunch) {
 					}
 				}
 
-/*				// Kolla om vi flyger
-				if (!stock.flyger && stock.såld == 0) {
-
-					debug(stock.namn, 1 - (stock.kurs / snapshot.price.regularMarketPrice), stopLoss);
-
-					// Flyger vi? I så fall sätt flyger = sant
-					// Vi flyger om vi tjänar 5% även om stop loss löses ut...
-
-					if (stopLoss != -1) {
-						if (1 - (stock.kurs / snapshot.price.regularMarketPrice) > (stopLoss + 0.05)) {
-
-							console.log(stock.namn, "flyger!, meddela och sätt flyger=true");
-
-							// Meddela med sms och uppdatera databasen med flyger=1
-							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " flyger!! (" + percentage + "%)."));
-							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
-						}
-					}
-					else {
-						if (snapshot.price.regularMarketPrice > (stock.kurs * 1.05)) {
-
-							console.log(stock.namn, "är 5% över inköp, meddela och sätt flyger=true");
-
-							// Meddela med sms och uppdatera databasen med flyger=1
-							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " är 5% över inköpskurs!"));
-							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET flyger=? WHERE id=?', [1, stock.id]));
-						}
-					}
-
-				}
-*/
-
 				debug("Senaste kurs=", snapshot.price.regularMarketPrice, ", maxkurs=", stock.maxkurs);
 
 				// Ny maxkurs?

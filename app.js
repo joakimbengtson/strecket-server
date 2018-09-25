@@ -683,16 +683,19 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 										}
 										else {
 											row.sma50 =   snapshot.summaryDetail.fiftyDayAverage;
-											row.sma200 =  snapshot.summaryDetail.twoHundredDayAverage;											
+											row.sma200 =  snapshot.summaryDetail.twoHundredDayAverage;		
+											row.utdelning = snapshot.summaryDetail.dividendYield * 100;
 										}
+
+										if (typeof snapshot.calendarEvents != 'undefined')
+											row.earningsDate = snapshot.calendarEvents.earnings.earningsDate;
 										
 										// Beräkna % med 2 decimaler
 										percentage = (1 - (row.kurs/snapshot.price.regularMarketPrice)) * 100;
 										
 										row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 										row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
-										row.earningsDate = snapshot.calendarEvents.earnings.earningsDate;
-										row.utdelning = snapshot.summaryDetail.dividendYield * 100;
+										
 										
 										console.log("ticker=", row.ticker,  "utfall=", row.utfall);
 										
