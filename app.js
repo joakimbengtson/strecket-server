@@ -328,6 +328,22 @@ var Server = function(args) {
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
+		// Kollar om ticker finns på Yahoo, i så fall all info tillbaks
+		app.get('/rawdump/:ticker', function (request, response) {
+
+			var ticker = request.params.ticker;
+			console.log("hämtar all data om:", ticker);
+			getYahooQuote({symbol:ticker, modules: ['price', 'summaryDetail', 'summaryProfile', 'financialData', 'recommendationTrend', 'earnings', 'upgradeDowngradeHistory', 'defaultKeyStatistics',  'calendarEvents']}).then(function(snapshot) {
+				response.status(200).json(snapshot);
+			})
+			.catch(function(error) {
+				response.status(200).json([]);
+			});
+
+		})
+
+
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Hämtar ATR för ticker
 		app.get('/atr/:ticker', function (request, response) {
 			var atrPercentage;
