@@ -328,6 +328,22 @@ var Server = function(args) {
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
+		// Kollar om ticker finns på Yahoo, i så fall all info tillbaks
+		app.get('/rawdump/:ticker', function (request, response) {
+
+			var ticker = request.params.ticker;
+			console.log("hämtar all data om:", ticker);
+			getYahooQuote({symbol:ticker, modules: ['price', 'summaryDetail', 'summaryProfile', 'financialData', 'recommendationTrend', 'earnings', 'upgradeDowngradeHistory', 'defaultKeyStatistics',  'calendarEvents']}).then(function(snapshot) {
+				response.status(200).json(snapshot);
+			})
+			.catch(function(error) {
+				response.status(200).json([]);
+			});
+
+		})
+
+
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Hämtar ATR för ticker
 		app.get('/atr/:ticker', function (request, response) {
 
@@ -663,14 +679,20 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 										}
 										else {
 											row.sma50 =   snapshot.summaryDetail.fiftyDayAverage;
-											row.sma200 =  snapshot.summaryDetail.twoHundredDayAverage;											
+											row.sma200 =  snapshot.summaryDetail.twoHundredDayAverage;		
+											row.utdelning = snapshot.summaryDetail.dividendYield * 100;
 										}
+
+										if (typeof snapshot.calendarEvents != 'undefined')
+											row.earningsDate = snapshot.calendarEvents.earnings.earningsDate;
 										
 										// Beräkna % med 2 decimaler
 										percentage = (1 - (row.kurs/snapshot.price.regularMarketPrice)) * 100;
 										row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 										row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
-										console.log("ticker, utfall", row.ticker, row.utfall);
+
+										console.log("ticker=", row.ticker,  "utfall=", row.utfall);
+										
 										return Promise.resolve();
 									});
 								});
