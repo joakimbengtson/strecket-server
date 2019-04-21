@@ -122,8 +122,8 @@ var Server = function(args) {
 		} while (spyPointer < 30 && tickerPointer < 30);
 		
 	}
-
-/*
+	
+	
 	function getYahooHistorical(options) {
 
 		return new Promise(function(resolve, reject) {
@@ -136,7 +136,7 @@ var Server = function(args) {
 					if (error)
 						reject(error);
 					else
-						resolve(quotes);
+						resolve(quotes);						
 				}
 				catch (error) {
 					reject(error);
@@ -146,7 +146,7 @@ var Server = function(args) {
 
 		});
 	}
-*/
+	
 
 	function getYahooQuote(options) {
 
@@ -658,7 +658,11 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 							if (rows.length > 0) {
 
 								var promise = Promise.resolve();
-
+								
+								// Ny kod
+								var promise2 = Promise.resolve();
+								// ---
+								
 								rows.forEach(function(row) {
 									promise = promise.then(function() {
 										return getYahooQuote({symbol:row.ticker, modules: ['price', 'summaryDetail', 'summaryProfile']});
@@ -678,8 +682,8 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 											row.sma200 =  -1;
 										}
 										else {
-											row.sma50 =   snapshot.summaryDetail.fiftyDayAverage;
-											row.sma200 =  snapshot.summaryDetail.twoHundredDayAverage;		
+											row.sma50 =     snapshot.summaryDetail.fiftyDayAverage;
+											row.sma200 =    snapshot.summaryDetail.twoHundredDayAverage;		
 											row.utdelning = snapshot.summaryDetail.dividendYield * 100;
 										}
 
@@ -693,7 +697,26 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 
 										console.log("ticker=", row.ticker,  "utfall=", row.utfall);
 										
-										return Promise.resolve();
+										// ---- ny kod
+										if (row.antal == -1) {
+											var today = getFormattedDate(new Date());
+											var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 40)));
+											
+											console.log("Valuta");
+											promise2 = promise.then(function() {
+												return getYahooHistorical({symbol:row.ticker, from: monthAgo, to: today, period: 'd'});
+											})
+											.then(function(quotes) {
+												console.log("quotes:", quotes);
+												row.quotes = quotes;
+												return promise.resolve();
+											});
+										}
+										else
+											return Promise.resolve();
+										// ---- slut ny kod
+											
+										// return Promise.resolve(); Den gamla koden
 									});
 								});
 
