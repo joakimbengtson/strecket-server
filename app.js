@@ -646,8 +646,9 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 		})
 
 
-		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
+//MEG
+
+
 		app.get('/stocks', function (request, response) {
 
 			_pool.getConnection(function(err, connection) {
@@ -658,11 +659,7 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 							if (rows.length > 0) {
 
 								var promise = Promise.resolve();
-								
-								// Ny kod
-								var promise2 = Promise.resolve();
-								// ---
-								
+																
 								rows.forEach(function(row) {
 									promise = promise.then(function() {
 										return getYahooQuote({symbol:row.ticker, modules: ['price', 'summaryDetail', 'summaryProfile']});
@@ -703,7 +700,107 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 											var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 40)));
 											
 											console.log("Valuta");
-											promise2 = promise.then(function() {
+											return getYahooHistorical({symbol:row.ticker, from: monthAgo, to: today, period: 'd'});
+										}
+										else
+											return Promise.resolve([]);
+										// ---- slut ny kod
+											
+										// return Promise.resolve(); Den gamla koden
+									})
+									.then(function(quotes) {
+										console.log("quotes:", quotes);
+										row.quotes = quotes;
+										return promise.resolve();
+									});
+								});
+
+								promise.then(function() {
+									response.status(200).json(rows);
+								})
+								.catch(function(error) {
+									console.log("ERR:", error);
+									response.status(200).json([]);
+								});
+
+							}
+							else {
+								console.log("Strecket: Inga aktier i databasen");
+								response.status(200).json([]);								
+							}
+						}
+						else {
+							console.log("'SELECT * FROM aktier WHERE såld=0' misslyckades: ", error);
+							response.status(200).json([]);
+						}
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);
+				}
+			});
+		})
+
+
+//MEG
+		
+
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
+		app.get('/stocks', function (request, response) {
+
+			_pool.getConnection(function(err, connection) {
+				if (!err) {
+					console.log("Hämtar alla aktier från DB.");
+					connection.query('SELECT * FROM aktier WHERE såld=0', function(error, rows, fields) {
+						if (!error) {
+							if (rows.length > 0) {
+
+								var promise = Promise.resolve();
+																
+								rows.forEach(function(row) {
+									promise = promise.then(function() {
+										return getYahooQuote({symbol:row.ticker, modules: ['price', 'summaryDetail', 'summaryProfile']});
+									})
+									.then(function(snapshot) {
+										row.senaste = snapshot.price.regularMarketPrice;
+										
+										if (typeof snapshot.summaryProfile != 'undefined') {
+											if (typeof snapshot.summaryProfile.sector != 'undefined') {
+												row.sector = snapshot.summaryProfile.sector + '/' + snapshot.summaryProfile.industry;											
+											}
+										}										
+										
+										if (typeof snapshot.summaryDetail == 'undefined') {
+											// Inte alla aktier har en summaryDetail, t ex svenska
+											row.sma50 =   -1;
+											row.sma200 =  -1;
+										}
+										else {
+											row.sma50 =     snapshot.summaryDetail.fiftyDayAverage;
+											row.sma200 =    snapshot.summaryDetail.twoHundredDayAverage;		
+											row.utdelning = snapshot.summaryDetail.dividendYield * 100;
+										}
+
+										if (typeof snapshot.calendarEvents != 'undefined')
+											row.earningsDate = snapshot.calendarEvents.earnings.earningsDate;
+										
+										// Beräkna % med 2 decimaler
+										percentage = (1 - (row.kurs/snapshot.price.regularMarketPrice)) * 100;
+										row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+										row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
+
+										console.log("ticker=", row.ticker,  "utfall=", row.utfall);
+										
+										// ---- ny kod
+										if (row.antal == -1) {
+											var today = getFormattedDate(new Date());
+											var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 40)));
+											
+											console.log("Valuta");
+											promise = promise.then(function() {
 												return getYahooHistorical({symbol:row.ticker, from: monthAgo, to: today, period: 'd'});
 											})
 											.then(function(quotes) {
