@@ -84,8 +84,28 @@ var Worker = module.exports = function(pool, poolMunch) {
 			   })
 
 			  .then(function(message) {
-				  console.log("SMS--->", message.sid, message.body);
-				  resolve();
+				console.log("SMS--->", message.sid, message.body);
+				
+			  	pool.getConnection(function(err, connection) {	
+					if (!err) {
+						var rec = {};
+						
+						rec.text = message.body;
+						rec.tid = new Date();
+
+						connection.query('INSERT INTO larm SET ?', rec, function(err, result) {
+							if (err)
+								console.log("sendSMS: Kunde inte anropa query: ", err);
+	
+							connection.release();
+						});
+					}
+					else {
+						console.log("sendSMS: Kunde inte skapa en connection: ", err);
+					}
+				});				  
+				  
+				resolve();
 			  })
 			  .catch(function(error) {
 				  console.log("FEL sendSMS:", error);
@@ -326,7 +346,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 						stopLoss = 0.03; // Sätt 3% som default
 					}
 				} 
-				else { // StoplossTypeQuote
+				else { // stoploss på fast kurs
 					stopLoss = -1;
 				}
 
@@ -345,17 +365,17 @@ var Worker = module.exports = function(pool, poolMunch) {
 						if (stopLoss != -1) {						
 							if (1 - (snapshot.price.regularMarketPrice / stock.maxkurs) > stopLoss) {
 								
-								console.log(stock.namn, " under släpande stop loss, larma.", stopLoss);
+								console.log(stock.namn, " under släpande stoploss, larma.", stopLoss);
 		
 								// Larma med sms och uppdatera databasen med larmflagga
-								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stop-loss (" + percentage + "%)."));
+								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stoploss (" + percentage + "%)."));
 								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 							}						
 						}
 						else {
 							if (snapshot.price.regularMarketPrice < stock.stoplossKurs) {
 								
-								console.log(stock.namn, " under fasta stop loss-kursen, larma.", snapshot.price.regularMarketPrice, stock.stoplossKurs);
+								console.log(stock.namn, " under fasta stoploss-kursen, larma.", snapshot.price.regularMarketPrice, stock.stoplossKurs);
 		
 								// Larma med sms och uppdatera databasen med larmflagga
 								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.price.regularMarketPrice));
@@ -481,9 +501,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 		
 		doSomeWork().then(function() {
 			
-			setTimeout(work, config.checkIntervalInSeconds * 1000);
-			//calculateATR();
-			
+			setTimeout(work, config.checkIntervalInSeconds * 1000);			
 
 		})
 
@@ -514,7 +532,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 
 	this.run = function() {
-		// sendSMS("Strecket Server startar!")
+		//sendSMS("Strecket Server startar!")
 		work();
 	};
 
