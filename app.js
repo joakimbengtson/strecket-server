@@ -187,7 +187,10 @@ var Server = function(args) {
 				spyChange    = 1 - (_SPYValues[spyPointer+1].close / _SPYValues[spyPointer].close);
 
 				console.log("jämför", _SPYValues[spyPointer].date, quotes[tickerPointer].date, tickerChange, spyChange);
-				spyProgress[progressPointer++] = tickerChange-spyChange;
+				
+				spyProgress.push({name:_SPYValues[spyPointer].date, value:(tickerChange-spyChange)*100});
+				
+				// spyProgress[progressPointer++] = tickerChange-spyChange;
 						
 				++tickerPointer;				
 				++spyPointer;				
