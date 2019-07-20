@@ -80,66 +80,6 @@ var Server = function(args) {
 
 	}
 
-
-/*
-	function getSPY30Days(connection) {
-
-		return new Promise(function(resolve, reject) {
-
-			_poolMunch.getConnection(function(err, connection) {
-
-				_SPYValues = [];
-
-				if (!err) {					
-					connection.query('select * from quotes where symbol = ? order by date desc limit 30', 'SPY', function(err, rows, fields) { 
-						if (!err) {
-							if (rows.length > 0) {
-								for (i = 0; i < 30; i++)
-									_SPYValues.push({close:rows[i].close, date:rows[i].date});
-									
-								//_SPYValues = _SPYValues.reverse();
-								
-								resolve();
-							}
-							else {
-								console.log("ERROR: select * from quotes where symbol = 'SPY' order by date desc limit 30 returnerade inget.");
-								reject("ERR: getSPY30Days: Tomt svar från query");
-							}
-						}
-						else {
-							console.log("ERROR: select * from quotes where symbol = ? order by date desc limit 30", err);
-							reject(err);
-						}
-					});
-				}
-				else {
-					console.log("Kunde inte skapa en connection: ", err);
-					reject(err);
-				}
-			});
-		});
-		
-	}
-	*/
-	
-	/* OLD
-	function getSpyProgress() {
-		var spySum = 0;
-		var arrayLength = _SPYValues.length-1;
-		var spyCopy = _SPYValues.reverse(); // Senaste tick först
-		var spyProgress = [];
-		
-		for (var i = 0; i < 10; i++) {
-			spyProgress.push({percent:((spyCopy[i].close-spyCopy[i+1].close)/spyCopy[i+1].close) * 100});
-		}		
-		
-		spyProgress.reverse();
-		
-		console.log("spyProgress=", spyProgress);
-		
-		return spyProgress;
-	}*/
-
 	
 	function datesEqual(d1, d2) {
 
@@ -540,7 +480,6 @@ var Server = function(args) {
 
 		})
 
-
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar alla index som screenas
 		app.get('/watches', function (request, response) {
@@ -608,6 +547,35 @@ var Server = function(args) {
 						}
 						else {
 							console.log("SELECT * FROM bevakning misslyckades: ", error);
+							response.status(200).json([]);
+						}
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);
+				}
+			});
+		})
+
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar alla källor
+		app.get('/sources', function (request, response) {
+
+			_pool.getConnection(function(err, connection) {
+				if (!err) {
+					console.log("----> Hämtar alla källor från DB.");
+					connection.query('SELECT * FROM källor', function(error, rows, fields) {
+						if (!error) {
+							if (rows.length > 0) {
+								response.status(200).json(rows);
+							}
+							else
+								response.status(200).json([]);
+						}
+						else {
+							console.log("SELECT * FROM källor misslyckades: ", error);
 							response.status(200).json([]);
 						}
 						connection.release();
@@ -874,17 +842,16 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 		})
 
 
-//MEG
-/*		
-
 		// ----------------------------------------------------------------------------------------------------------------------------
-		// Returnerar alla aktier med aktuell kurs och utfall i % mot köp
-		app.get('/stocks', function (request, response) {
+		// Returnerar alla sålda aktier
+		app.get('/sold_stocks', function (request, response) {
 
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
-					console.log("Hämtar alla aktier från DB.");
-					connection.query('SELECT * FROM aktier WHERE såld=0', function(error, rows, fields) {
+					console.log("Hämtar alla sålda aktier från DB.");
+//					connection.query('SELECT * FROM aktier WHERE såld=1 AND såld_kurs IS NOT NULL', function(error, rows, fields) {
+					connection.query('SELECT aktier.*, källor.text FROM aktier JOIN källor ON källor.id = aktier.källa WHERE såld=1 AND såld_kurs IS NOT NULL ORDER BY såld_datum', function(error, rows, fields) {	
+
 						if (!error) {
 							if (rows.length > 0) {
 
@@ -896,54 +863,12 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 									})
 									.then(function(snapshot) {
 										row.senaste = snapshot.price.regularMarketPrice;
-										
-										if (typeof snapshot.summaryProfile != 'undefined') {
-											if (typeof snapshot.summaryProfile.sector != 'undefined') {
-												row.sector = snapshot.summaryProfile.sector + '/' + snapshot.summaryProfile.industry;											
-											}
-										}										
-										
-										if (typeof snapshot.summaryDetail == 'undefined') {
-											// Inte alla aktier har en summaryDetail, t ex svenska
-											row.sma50 =   -1;
-											row.sma200 =  -1;
-										}
-										else {
-											row.sma50 =     snapshot.summaryDetail.fiftyDayAverage;
-											row.sma200 =    snapshot.summaryDetail.twoHundredDayAverage;		
-											row.utdelning = snapshot.summaryDetail.dividendYield * 100;
-										}
-
-										if (typeof snapshot.calendarEvents != 'undefined')
-											row.earningsDate = snapshot.calendarEvents.earnings.earningsDate;
-										
+																														
 										// Beräkna % med 2 decimaler
 										percentage = (1 - (row.kurs/snapshot.price.regularMarketPrice)) * 100;
 										row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-										row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
 
-										console.log("ticker=", row.ticker,  "utfall=", row.utfall);
-										
-										// ---- ny kod
-										if (row.antal == -1) {
-											var today = getFormattedDate(new Date());
-											var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 40)));
-											
-											console.log("Valuta");
-											promise = promise.then(function() {
-												return getYahooHistorical({symbol:row.ticker, from: monthAgo, to: today, period: 'd'});
-											})
-											.then(function(quotes) {
-												console.log("quotes:", quotes);
-												row.quotes = quotes;
-												return promise.resolve();
-											});
-										}
-										else
-											return Promise.resolve();
-										// ---- slut ny kod
-											
-										// return Promise.resolve(); Den gamla koden
+										return Promise.resolve();
 									});
 								});
 
@@ -962,7 +887,7 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 							}
 						}
 						else {
-							console.log("'SELECT * FROM aktier WHERE såld=0' misslyckades: ", error);
+							console.log("'SELECT * FROM aktier WHERE såld=1' misslyckades: ", error);
 							response.status(200).json([]);
 						}
 						connection.release();
@@ -974,7 +899,7 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 				}
 			});
 		})
-*/
+
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Sparar ticker till trålen
@@ -1054,16 +979,18 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Säljer aktie
-		app.delete('/stocks/:id', function (request, response) {
+		app.delete('/stocks/:id/date/:date/price/:price/amount/:amount', function (request, response) {
 
 			var id  = request.params.id;
+			var date = request.params.date; 
+			var price = request.params.price;  
 
-			console.log('Säljer aktie: ', id);
+			console.log('Säljer aktie: ', request.params);
 
 			_pool.getConnection(function(err, connection) {
 
 				if (!err) {
-					connection.query('UPDATE aktier SET såld=1, såld_datum=NOW() WHERE id=?', id, function(err, result) {
+					connection.query('UPDATE aktier SET såld=1, såld_datum=?, såld_kurs=? WHERE id=?', [date, price, id], function(err, result) {
 						if (err)
 							response.status(404).json({error:err});
 						else
