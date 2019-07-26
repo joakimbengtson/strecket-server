@@ -794,13 +794,16 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 										})
 										.then(function(quoteData) {
 											var quotes = [];
+											var quotes2 = [];
 
 											quoteData.forEach(function(quote) {
 												if (quote.close != null) {
 													quotes.push({close:quote.close, date:quote.date});											
+													quotes2.push(quote.close);
 												}
 											})
-											console.log("ticker", row.ticker);
+
+											row.quotes = quotes2.reverse();
 											row.spyProgress = getSpyProgress(quotes);
 
 											return Promise.resolve();
