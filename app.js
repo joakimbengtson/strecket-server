@@ -420,7 +420,7 @@ var Server = function(args) {
 								getYahooQuote({symbol:ticker, modules: ['price', 'calendarEvents']}).then(function(snapshot) {
 									console.log("ATR14=", rows[0].ATR14, "Close day before=", snapshot.price.regularMarketPreviousClose, "earningsDate=", snapshot.calendarEvents.earnings.earningsDate);
 									atrPercentage = rows[0].ATR14 / snapshot.price.regularMarketPreviousClose;
-									response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage, earningsDate:snapshot.calendarEvents.earnings.earningsDate});
+									response.status(200).json({ATR:rows[0].ATR14, atrPercentage:atrPercentage, earningsDate:snapshot.calendarEvents.earnings.earningsDate, quote:snapshot.price.regularMarketPrice});
 								})
 								.catch(function(error) {
 									response.status(200).json([]);
