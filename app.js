@@ -735,6 +735,41 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 		})
 
 
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar historisk data för ticker
+		app.get('/history/:ticker', function (request, response) {
+
+			var id  = request.params.id;
+
+			_pool.getConnection(function(err, connection) {
+				if (!err) {
+					console.log("Hämtar aktien med id=", id);
+					connection.query('SELECT * FROM aktier WHERE såld=0 AND id=' + id, function(error, row, fields) {
+						if (!error) {
+							if (row.length > 0) {
+								response.status(200).json(row);
+							}
+							else
+								response.status(200).json([]);
+						}
+						else {
+							console.log("Query mot DB misslyckades", error);
+							response.status(200).json([]);
+						}
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);
+				}
+			});
+		})
+
+
+
+		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar alla innehav
 		app.get('/stocks', function (request, response) {
 
 			_pool.getConnection(function(err, connection) {
@@ -852,7 +887,6 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 			_pool.getConnection(function(err, connection) {
 				if (!err) {
 					console.log("Hämtar alla sålda aktier från DB.");
-//					connection.query('SELECT * FROM aktier WHERE såld=1 AND såld_kurs IS NOT NULL', function(error, rows, fields) {
 					connection.query('SELECT aktier.*, källor.text FROM aktier JOIN källor ON källor.id = aktier.källa WHERE såld=1 AND såld_kurs IS NOT NULL ORDER BY såld_datum', function(error, rows, fields) {	
 
 						if (!error) {
