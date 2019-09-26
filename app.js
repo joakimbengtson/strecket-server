@@ -373,19 +373,107 @@ var Server = function(args) {
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
-		// Kollar om ticker finns på Yahoo, i så fall företagsnamn tillbaks
-		app.get('/company/:ticker', function (request, response) {
+		// Kollar om ticker finns på Yahoo, i så fall price-sektionen tillbaks
+	/*	app.get('/company/:ticker', function (request, response) {
 
 			var ticker = request.params.ticker;
-			console.log("Söker efter namn på ticker", ticker);
+
 			getYahooQuote({symbol:ticker, modules: ['price']}).then(function(snapshot) {
-				response.status(200).json(snapshot.price.shortName);
+				response.status(200).json(snapshot.price);
 			})
 			.catch(function(error) {
 				response.status(200).json([]);
 			});
 
+		})*/
+		
+		app.get('/company/:ticker', function (request, response) {
+
+			var ticker = request.params.ticker;
+
+			_poolMunch.getConnection(function(err, connection) {
+				if (!err) {
+					connection.query('SELECT * FROM stocks WHERE symbol=?', ticker, function(error, rows, fields) {
+						if (!error) {
+							getYahooQuote({symbol:ticker, modules: ['price', 'summaryDetail', 'summaryProfile', 'financialData', 'recommendationTrend', 'earnings', 'upgradeDowngradeHistory', 'defaultKeyStatistics',  'calendarEvents']}).then(function(snapshot) {
+								var misc = {};
+								
+								if (rows.length > 0) {
+									misc.atr14 = rows[0].ATR14;
+									misc.sma10 = rows[0].SMA10;
+									misc.av14 = rows[0].AV14;
+
+									snapshot.misc = misc;		
+
+									response.status(200).json(snapshot);
+									
+								}
+								else {
+									var today = getFormattedDate(new Date());
+									var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23)));
+							
+									getYahooHistorical({symbol:ticker, from: monthAgo, to: today, period: 'd'}).then(function(quotes) {
+										var i;
+										var atr;
+										var vol = 0;
+										var sma10 = 0;
+										var firstQuote = true;
+										var today = getFormattedDate(new Date());
+										var twoWeeksAgoish = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23))); // Hämta 23 dagar tillbaks för att vara säker på att få 14 börsdagar
+			
+										for (i = 0; i < Math.min(quotes.length, 14); ++i) {
+											
+											if (i < 10)
+												sma10 = sma10 + quotes[i].close;
+																			
+											if (firstQuote) {
+												firstQuote = false;
+												atr = quotes[i].high - quotes[i].low;
+											}
+											else {
+												atr = atr + Math.max(quotes[i].high - quotes[i].low, Math.abs(quotes[i].high - prevClose), Math.abs(quotes[i].low - prevClose));						
+											}
+											
+											prevClose = quotes[i].close;
+											
+											vol = vol + quotes[i].volume;
+										}
+									
+										misc.atr14 = (atr / 14).toFixed(2);
+										misc.av14  = Math.round(vol / 14);
+										misc.sma10 = (sma10 / 10).toFixed(2);
+										
+										snapshot.misc = misc;		
+
+										response.status(200).json(snapshot);
+
+									})
+									.catch(function(error) {
+										response.status(404).json(['getYahooHistorical failed.']);
+									});									
+
+								}
+
+							})
+							.catch(function(error) {
+								response.status(404).json(['getYahooQuote failed.']);
+							});
+						}
+						else {
+							console.log("SELECT * FROM stocks misslyckades: ", error);
+							response.status(200).json([]);
+						}
+						connection.release();
+					});
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);
+				}
+			});
+
 		})
+		
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
@@ -393,7 +481,7 @@ var Server = function(args) {
 		app.get('/rawdump/:ticker', function (request, response) {
 
 			var ticker = request.params.ticker;
-			console.log("hämtar all data om:", ticker);
+			
 			getYahooQuote({symbol:ticker, modules: ['price', 'summaryDetail', 'summaryProfile', 'financialData', 'recommendationTrend', 'earnings', 'upgradeDowngradeHistory', 'defaultKeyStatistics',  'calendarEvents']}).then(function(snapshot) {
 				response.status(200).json(snapshot);
 			})
@@ -409,7 +497,6 @@ var Server = function(args) {
 		app.get('/atr/:ticker', function (request, response) {
 
 			var ticker = request.params.ticker;
-			console.log("----> Söker efter ATR på ticker", ticker);
 
 			_poolMunch.getConnection(function(err, connection) {
 				if (!err) {
@@ -739,33 +826,19 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 		// Returnerar historisk data för ticker
 		app.get('/history/:ticker', function (request, response) {
 
-			var id  = request.params.id;
+			var ticker  = request.params.ticker;			
+			var today = getFormattedDate(new Date());
+			var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 20))); // 20 dagar
+	
+			getYahooHistorical({symbol:ticker, from: monthAgo, to: today, period: 'd'}).then(function(quotes) {
+				response.status(200).json(quotes);
+			})
+			.catch(function(error) {
+				console.log("ERR:/history/:ticker");
+				response.status(404).json([]);
+			});			
 
-			_pool.getConnection(function(err, connection) {
-				if (!err) {
-					console.log("Hämtar aktien med id=", id);
-					connection.query('SELECT * FROM aktier WHERE såld=0 AND id=' + id, function(error, row, fields) {
-						if (!error) {
-							if (row.length > 0) {
-								response.status(200).json(row);
-							}
-							else
-								response.status(200).json([]);
-						}
-						else {
-							console.log("Query mot DB misslyckades", error);
-							response.status(200).json([]);
-						}
-						connection.release();
-					});
-				}
-				else {
-					console.log("Kunde inte skapa en connection: ", err);
-					response.status(200).json([]);
-				}
-			});
 		})
-
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
