@@ -328,7 +328,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 				var percentage = (1 - (stock.kurs/snapshot.price.regularMarketPrice)) * 100;
 				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 				
-				debug(stock.namn, "utfall %, köpkurs, kurs nu:", percentage, stock.kurs, snapshot.price.regularMarketPrice);
+				debug(stock.namn, "utfall %:", percentage, "köpkurs:", stock.kurs, "kurs nu:", snapshot.price.regularMarketPrice);
 
 				// En vektor med det som ska göras för varje aktie
 				var promises = [];				
@@ -436,8 +436,9 @@ var Worker = module.exports = function(pool, poolMunch) {
 				});
 			})
 			.catch(function(error) {
-				// Om något misslyckas, gör så att denna metod också misslyckas
-				reject(error);
+				console.log("ERROR: getYahooSnapshot misslyckades", error);
+				resolve();
+				//reject(error);
 			});
 			
 		});
