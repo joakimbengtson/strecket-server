@@ -11,5 +11,6 @@ config.risk = 0.0025;
 config.stoplossType = {
     StoplossTypeATR : 1,
     StoplossTypeQuote : 2,
-    StoplossTypePercent : 3
+    StoplossTypePercent : 3,
+    StoplossTypeSMA20 : 4
 }

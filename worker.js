@@ -256,10 +256,10 @@ var Worker = module.exports = function(pool, poolMunch) {
 	};*/
 
 
-	function calculateATR() {
+	function calculateATRandSMA() {
 		var stocksCount = 0;
 		
-		console.log("----- Hämtar ATR från Munch för alla aktier");
+		console.log("----- Hämtar ATR och SMA från Munch för alla aktier");
 		
 		pool.getConnection(function(error, connection) {
 			if (!error) {
@@ -271,12 +271,13 @@ var Worker = module.exports = function(pool, poolMunch) {
 						getStocks(connection).then(function(stocks) {
 		
 							stocks.forEach(function(stock) {
-								runQuery(munchConnection, 'SELECT ATR14 FROM stocks WHERE symbol=?', [stock.ticker]).then(function(rows) {
+								runQuery(munchConnection, 'SELECT ATR14, SMA20 FROM stocks WHERE symbol=?', [stock.ticker]).then(function(rows) {
 									if (rows.length > 0) {
 
 										console.log("Ny ATR för ", stock.ticker, "är", rows[0].ATR14, "föregående ATR", stock.ATR);
+										console.log("Ny SMA20 för ", stock.ticker, "är", rows[0].SMA20, "föregående SMA20", stock.SMA20);
 										
-										connection.query('UPDATE aktier SET ATR=? WHERE id=?', [rows[0].ATR14, stock.id]);
+										connection.query('UPDATE aktier SET ATR=?, SMA20=? WHERE id=?', [rows[0].ATR14, rows[0].SMA20, stock.id]);
 									}
 									else
 										console.log(stock.ticker, "finns inte i Munch/stocks.");
@@ -292,7 +293,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 								.catch(function(error) {
 									connection.release();
 									munchConnection.release();																	
-									console.log("Error:calculateATR:runQuery:", error);
+									console.log("Error:calculateATRandSMA:runQuery:", error);
 								});
 							}); 
 		
@@ -300,7 +301,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 						.catch(function(error) {
 							connection.release();							
 							munchConnection.release();																	
-							console.log("Error:calculateATR:getStocks:", error);
+							console.log("Error:calculateATRandSMA:getStocks:", error);
 						});
 											
 					}
@@ -325,7 +326,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 			getYahooSnapshot({symbol:stock.ticker, modules: ['price']}).then(function(snapshot) { // Hämta senaste kurs och previousClose
 
 				// Nuvarande utfall mot köpkurs
-				var percentage = (1 - (stock.kurs/snapshot.price.regularMarketPrice)) * 100;
+				var percentage = ((snapshot.price.regularMarketPrice/stock.kurs)-1) * 100;
 				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
 				
 				debug(stock.namn, "utfall %:", percentage, "köpkurs:", stock.kurs, "kurs nu:", snapshot.price.regularMarketPrice);
@@ -349,13 +350,6 @@ var Worker = module.exports = function(pool, poolMunch) {
 				else { // stoploss på fast kurs
 					stopLoss = -1;
 				}
-
-				// Om percentil10 så addera utfall/10 till stop loss
-				if (stopLoss != -1 && stock.percentil10 && percentage > 10) {
-					// Percentage är hela procent, stopLoss är hundradelar...
-					stopLoss = stopLoss + (percentage/1000);
-				}
-
 				
 				debug(stock.namn, "har stop loss", stopLoss);
 								
@@ -373,15 +367,26 @@ var Worker = module.exports = function(pool, poolMunch) {
 							}						
 						}
 						else {
-							if (snapshot.price.regularMarketPrice < stock.stoplossKurs) {
+							if (stock.stoplossTyp == config.stoplossType.StoplossTypeQuote) {
+								if (snapshot.price.regularMarketPrice < stock.stoplossKurs) {
+									
+									console.log(stock.namn, " under fasta stoploss-kursen, larma.", snapshot.price.regularMarketPrice, stock.stoplossKurs);
+			
+									// Larma med sms och uppdatera databasen med larmflagga
+									promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.price.regularMarketPrice));
+									promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+								}														
+							} else { // Stoploss på SMA20
+								if (snapshot.price.regularMarketPrice < stock.SMA20) {
+									
+									console.log(stock.namn, " under SMA20, larma.", snapshot.price.regularMarketPrice, stock.SMA20);
+			
+									// Larma med sms och uppdatera databasen med larmflagga
+									promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under SMA20 (" + stock.SMA20 + "). Nu på " + snapshot.price.regularMarketPrice));
+									promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+								}														
 								
-								console.log(stock.namn, " under fasta stoploss-kursen, larma.", snapshot.price.regularMarketPrice, stock.stoplossKurs);
-		
-								// Larma med sms och uppdatera databasen med larmflagga
-								promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.price.regularMarketPrice));
-								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
-							}						
-							
+							}
 						}					
 					}
 				}
@@ -405,14 +410,25 @@ var Worker = module.exports = function(pool, poolMunch) {
 						}
 					}
 					else {
-						if (snapshot.price.regularMarketPrice > (stock.stoplossKurs * 1.01)) {
-							
-							console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
-	
-							// Larma med sms och uppdatera databasen med rensad larmflagga
-							promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " är nu åter över stoploss på fast kurs, nu " + snapshot.price.regularMarketPrice + "."));
-							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
-						}						
+						if (stock.stoplossTyp == config.stoplossType.StoplossTypeQuote) {						
+							if (snapshot.price.regularMarketPrice > (stock.stoplossKurs * 1.01)) {
+								
+								console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
+		
+								// Larma med sms och uppdatera databasen med rensad larmflagga
+								promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " är nu åter över stoploss på fast kurs, nu " + snapshot.price.regularMarketPrice + "."));
+								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
+							}
+						} else { // Åter över SMA20
+							if (snapshot.price.regularMarketPrice > (stock.SMA20 * 1.01)) {
+								
+								console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
+		
+								// Larma med sms och uppdatera databasen med rensad larmflagga
+								promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " är nu åter över SMA20, nu " + snapshot.price.regularMarketPrice + "."));
+								promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
+							}							
+						}
 					}
 				}									
 
@@ -525,8 +541,8 @@ var Worker = module.exports = function(pool, poolMunch) {
 		rule.minute = 0;
 				 
 		schedule.scheduleJob(rule, function() {
-			console.log("Scheduled job: calculate ATR");			
-			calculateATR();
+			console.log("Scheduled job: calculate ATR and SMA");			
+			calculateATRandSMA();
 		});		
 		
 	};
