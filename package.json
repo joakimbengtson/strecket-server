@@ -23,6 +23,7 @@
     "express": "^4.15.2",
     "mysql": "^2.13.0",
     "node-schedule": "^1.2.1",
+    "puppeteer": "^2.1.1",
     "react-sparklines": "^1.6.0",
     "twilio": "^3.6.6",
     "yahoo-finance": "^0.3.2",

@@ -12,6 +12,8 @@ var config = require('./config.js');
 var mySQL = require('mysql');
 var tokens = require('./tokens.js');
 
+const puppeteer = require('puppeteer');
+
 
 var _pool  = mySQL.createPool({
 	host     : tokens.HOST,
@@ -514,15 +516,14 @@ var Server = function(args) {
 										misc.atr14 = rows[0].ATR14;
 										misc.av14 = rows[0].AV14;											
 										misc.sma10 = rows[0].SMA10;
-										
+										misc.sma20 = rows[0].SMA20;										
 									} else {
 										// Vi har själva räknat ut värdena i getIndicators
 										misc.atr14 = indicators.atr14;
 										misc.av14  = indicators.av14;
 										misc.sma10 = indicators.sma10;																				
-									}		
-									
-									misc.sma20 = indicators.sma20; // SMA20 måste alltid räknas ut, finns inte i Munch->stocks
+										misc.sma20 = indicators.sma20;										
+									}
 																													
 									snapshot.misc = misc;		
 
@@ -901,6 +902,46 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 
 
 		// ----------------------------------------------------------------------------------------------------------------------------
+		// Returnerar Fear & Greed
+		app.get('/fearandgreed', function (request, response) {
+
+			(async () => {
+
+				try {
+					const browser = await puppeteer.launch({args: ['--no-sandbox']});
+					const page = await browser.newPage();
+					await page.goto('https://money.cnn.com/data/fear-and-greed/');	
+					await page.waitFor(1000);
+					
+					const result = await page.evaluate(() => {
+						var valueList;
+						var str = [];
+						
+						valueList = document.querySelectorAll('#needleChart ul li');
+												
+						valueList.forEach(function (item, index) {
+							item = item.innerHTML.split(":")[1];
+							str.push(item.match(/[0-9]+/g)[0]);
+						});
+						
+						return str;
+					});
+	
+					await browser.close();
+					
+					response.status(200).json(result);
+					
+				} catch (error) {
+					console.log("ERR:/fearandgreed", error);
+					response.status(404).json(["ERR:/fearandgreed:" + error]);						
+				}
+			
+			})();
+
+		})
+
+
+		// ----------------------------------------------------------------------------------------------------------------------------
 		// Returnerar historisk data för ticker
 		app.get('/history/:ticker', function (request, response) {
 
@@ -967,7 +1008,9 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 											// Beräkna % med 2 decimaler
 											percentage = ((snapshot.price.regularMarketPrice/row.kurs)-1) * 100;
 											row.utfall = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
-											row.atrStoploss = (row.ATR * row.ATRMultipel) / snapshot.price.regularMarketPreviousClose;
+											
+											//row.atrStoploss = snapshot.price.regularMarketPreviousClose - (row.ATR * row.ATRMultipel);
+											row.atrStoploss = row.maxkurs - (row.ATR * row.ATRMultipel);
 
 											// Hämta senaste 30 börsdagar för alla tickers
 											var today = getFormattedDate(new Date());
@@ -994,7 +1037,7 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 												}
 											})
 
-											row.sma20 = sma20/20;
+											row.sma20 = (sma20/20).toFixed(2);
 											row.quotes = quotes2.reverse();
 											
 											if (!isCurrency(row.ticker))

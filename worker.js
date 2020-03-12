@@ -318,9 +318,114 @@ var Worker = module.exports = function(pool, poolMunch) {
 						
 	};
 
+// NEW do some work
 
 	// Anropas för varje aktie i doSomeWork()
 	function doSomeWorkOnStock(connection, stock) {
+
+		return new Promise(function(resolve, reject) {
+			getYahooSnapshot({symbol:stock.ticker, modules: ['price']}).then(function(snapshot) { // Hämta senaste kurs och previousClose
+
+				// Nuvarande utfall mot köpkurs
+				var percentage = ((snapshot.price.regularMarketPrice/stock.kurs)-1) * 100;
+				percentage = parseFloat(Math.round(percentage * 100) / 100).toFixed(2);
+				
+				debug(stock.namn, "utfall %:", percentage, "köpkurs:", stock.kurs, "kurs nu:", snapshot.price.regularMarketPrice, "maxkurs:", stock.maxkurs);
+
+				// En vektor med det som ska göras för varje aktie
+				var promises = [];				
+				var stopLossQuote;
+				
+				// Räkna ut stop loss som en fast kurs (som vi inte får gå under)
+				switch (stock.stoplossTyp) {
+					
+					case config.stoplossType.StoplossTypePercent:
+						stopLossQuote = (stock.maxkurs - (stock.maxkurs * stock.stoplossProcent)).toFixed(2);						
+						break;
+
+					case config.stoplossType.StoplossTypeATR:
+						stopLossQuote = (stock.maxkurs - (stock.ATR * stock.ATRMultipel)).toFixed(2);
+						break;
+						
+					case config.stoplossType.StoplossTypeQuote:
+						stopLossQuote = stock.stoplossKurs;
+						break;					
+
+					case config.stoplossType.StoplossTypeSMA20:
+						stopLossQuote = stock.SMA20;
+						break;					
+						
+					default:
+						console.log("Fel: okänd typ av stop loss = ", stock.stoplossType);
+				} 
+								
+				debug(stock.namn, "har stop loss", stopLossQuote);
+								
+				if (!stock.larm) {
+					// Kolla stop loss och larma om det behövs, strunta i detta för sålda aktier	
+					if (stock.såld == 0) {					
+						if (snapshot.price.regularMarketPrice < stopLossQuote) {						
+							console.log(stock.namn, " under stoploss (", snapshot.price.regularMarketPrice, ") -> larma!");
+		
+							// Larma med sms och uppdatera databasen med larmflagga
+							promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under släpande stoploss (" + percentage + "%)."));
+							promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
+						}
+					}
+				}
+				else {
+					// Har vi redan larmat, kolla om vi återhämtat oss? (Måste återhämtat minst 1% över stoploss för att räknas...)
+					// Kollar ÄVEN sålda aktier om de återhämtat sig
+					
+					var soldTxt = "";
+
+					if (stock.såld == 1)
+						soldTxt = "REDAN SÅLD: ";
+					
+					if (snapshot.price.regularMarketPrice > stopLossQuote * 1.01) {
+						
+						console.log(soldTxt, stock.namn, " har återhämtat sig, återställer larm.");
+
+						// Larma med sms och uppdatera databasen med rensad larmflagga
+						promises.push(sendSMS.bind(_this, soldTxt + stock.namn + " (" + stock.ticker + ")" + " har återhämtat sig från stoploss, nu " + percentage + "% från köpkursen."));
+						promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [0, stock.id]));
+					}
+				}									
+
+
+				// Ny maxkurs?
+				if (snapshot.price.regularMarketPrice > stock.maxkurs || stock.maxkurs == null || stock.maxkurs == 0) {
+					console.log("Sätter ny maxkurs: ", snapshot.price.regularMarketPrice, stock.ticker);
+					promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET maxkurs=? WHERE id=?', [snapshot.price.regularMarketPrice, stock.id]));
+				}
+								
+				debug("------------------------------------------------------------------------------------------------------");
+
+
+				// Kör alla promises som ligger i kö sekventiellt
+				runPromises(promises).then(function() {
+					resolve();
+				})
+				.catch(function(error) {
+					// Om något misslyckas, gör så att denna metod också misslyckas
+					reject(error);
+				});
+			})
+			.catch(function(error) {
+				console.log("ERROR: getYahooSnapshot misslyckades", error);
+				resolve();
+			});
+			
+		});
+
+	}
+
+
+// -------
+
+	// Anropas för varje aktie i doSomeWork()
+	/*
+	function OLDdoSomeWorkOnStock(connection, stock) {
 
 		return new Promise(function(resolve, reject) {
 			getYahooSnapshot({symbol:stock.ticker, modules: ['price']}).then(function(snapshot) { // Hämta senaste kurs och previousClose
@@ -376,7 +481,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 									promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under kursen (" + stock.stoplossKurs + "). Nu på " + snapshot.price.regularMarketPrice));
 									promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 								}														
-							} else { // Stoploss på SMA20
+							} else if (stock.stoplossTyp == config.stoplossType.StoplossTypeSMA20) { // Stoploss på SMA20
 								if (snapshot.price.regularMarketPrice < stock.SMA20) {
 									
 									console.log(stock.namn, " under SMA20, larma.", snapshot.price.regularMarketPrice, stock.SMA20);
@@ -385,7 +490,6 @@ var Worker = module.exports = function(pool, poolMunch) {
 									promises.push(sendSMS.bind(_this, stock.namn + " (" + stock.ticker + ")" + " under SMA20 (" + stock.SMA20 + "). Nu på " + snapshot.price.regularMarketPrice));
 									promises.push(runQuery.bind(_this, connection, 'UPDATE aktier SET larm=? WHERE id=?', [1, stock.id]));
 								}														
-								
 							}
 						}					
 					}
@@ -460,7 +564,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 		});
 
 	}
-
+*/
 
 	function doSomeWork() {
 
