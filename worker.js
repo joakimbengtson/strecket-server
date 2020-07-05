@@ -653,6 +653,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 
 
 	this.run = function() {
+		console.log("Strecket Server startar!");
 		//sendSMS("Strecket Server startar!")
 		work();
 	};

@@ -4,9 +4,8 @@ var express = require('express');
 var app = express();
 var cors = require('cors');
 var sprintf = require('yow').sprintf;
+var prefixConsole = require('yow/prefixConsole');
 var bodyParser = require('body-parser');
-var redirectLogs = require('yow').redirectLogs;
-var prefixLogs = require('yow').prefixLogs;
 var yahooFinance = require('yahoo-finance');
 var config = require('./config.js');
 var mySQL = require('mysql');
@@ -1338,12 +1337,8 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 
 	function run() {
 
-		prefixLogs();
-
-		if (args.log) {
-			redirectLogs();
-		}
-
+		prefixConsole();
+		
 		listen();
 		work();
 
