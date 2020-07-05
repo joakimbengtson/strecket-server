@@ -552,7 +552,87 @@ var Server = function(args) {
 
 		})
 		
+		// BEGIN MEG
 
+		app.get('/mysql', function(request, response) {
+
+			try {
+				var MySQL = require('mysql');
+
+				var database  = request.params.database;
+				var context   = extend({}, request.body, request.query);
+
+				function connect() {
+
+					return new Promise(function(resolve, reject) {
+
+						var options = {};
+						options.host     = tokens.HOST;
+						options.user     = tokens.USER;
+						options.password = tokens.PW;
+						options.database = 'munch';
+
+						var mysql = MySQL.createConnection(options);
+
+						mysql.connect(function(error) {
+							if (error) {
+								reject(error);
+							}
+							else {
+								resolve(mysql);
+							}
+
+						});
+					});
+
+				}
+
+				function query(mysql) {
+
+					return new Promise(function(resolve, reject) {
+
+						var options = context.query;
+
+						if (typeof options == 'string') {
+							options = {sql:options};
+						}
+
+						var query = mysql.query(options, function(error, results, fields) {
+							if (error)
+								reject(error);
+							else
+								resolve(results);
+						});
+
+
+					});
+				}
+
+				connect().then(function(mysql) {
+
+					query(mysql).then(function(result) {
+						response.status(200).json(result);
+					})
+					.catch(function(error) {
+						response.status(401).json({error:error.message});
+					})
+					.then(function() {
+						mysql.end();
+					});
+				})
+				.catch(function(error) {
+					response.status(401).json({error:error.message});
+
+				})
+			}
+			catch(error) {
+				response.status(401).json({error:error.message});
+
+			}
+		});
+
+
+		// END MEG
 
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Kollar om ticker finns på Yahoo, i så fall all info tillbaks
