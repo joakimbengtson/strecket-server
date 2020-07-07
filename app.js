@@ -552,88 +552,86 @@ var Server = function(args) {
 
 		})
 		
-		// BEGIN MEG
+ // BEGIN MEG version 3
 
-		app.get('/mysql', function(request, response) {
+        app.get('/mysql', function(request, response) {
 
-			try {
-				var MySQL = require('mysql');
+            try {
+                var MySQL = require('mysql');
+                var context = Object.assign({}, request.body, request.query);
 
-				var database  = request.params.database;
-				var context   = extend({}, request.body, request.query);
+                function connect() {
 
-				function connect() {
+                    return new Promise(function(resolve, reject) {
 
-					return new Promise(function(resolve, reject) {
+                        var options = {};
+                        options.host     = tokens.HOST;
+                        options.user     = tokens.USER;
+                        options.password = tokens.PW;
+                        options.database = 'munch';
+                        
+                        var mysql = MySQL.createConnection(options);
 
-						var options = {};
-						options.host     = tokens.HOST;
-						options.user     = tokens.USER;
-						options.password = tokens.PW;
-						options.database = 'munch';
+                        mysql.connect(function(error) {
+                            if (error) {
+                                reject(error);
+                            }
+                            else {
+                                resolve(mysql);
+                            }
 
-						var mysql = MySQL.createConnection(options);
+                        });
+                    });
 
-						mysql.connect(function(error) {
-							if (error) {
-								reject(error);
-							}
-							else {
-								resolve(mysql);
-							}
+                }
 
-						});
-					});
+                function query(mysql) {
 
-				}
+                    return new Promise(function(resolve, reject) {
 
-				function query(mysql) {
+                        var options = context;
 
-					return new Promise(function(resolve, reject) {
+                        if (typeof options == 'string') {
+                            options = {sql:options};
+                        }
 
-						var options = context.query;
-
-						if (typeof options == 'string') {
-							options = {sql:options};
-						}
-
-						var query = mysql.query(options, function(error, results, fields) {
-							if (error)
-								reject(error);
-							else
-								resolve(results);
-						});
+                        var query = mysql.query(options, function(error, results, fields) {
+                            if (error)
+                                reject(error);
+                            else
+                                resolve(results);
+                        });
 
 
-					});
-				}
+                    });
+                }
 
-				connect().then(function(mysql) {
+                connect().then(function(mysql) {
 
-					query(mysql).then(function(result) {
-						response.status(200).json(result);
-					})
-					.catch(function(error) {
-						response.status(401).json({error:error.message});
-					})
-					.then(function() {
-						mysql.end();
-					});
-				})
-				.catch(function(error) {
-					response.status(401).json({error:error.message});
+                    query(mysql).then(function(result) {
+                        response.status(200).json(result);
+                    })
+                    .catch(function(error) {
+                        console.log(error);
+                        response.status(401).json({error:error.message});
+                    })
+                    .then(function() {
+                        mysql.end();
+                    });
+                })
+                .catch(function(error) {
+                    response.status(401).json({error:error.message});
 
-				})
-			}
-			catch(error) {
-				response.status(401).json({error:error.message});
+                })
+            }
+            catch(error) {
+                response.status(401).json({error:error.message});
 
-			}
-		});
+            }
+        });
 
-
-		// END MEG
-
+        // END MEG
+        
 		// ----------------------------------------------------------------------------------------------------------------------------
 		// Kollar om ticker finns på Yahoo, i så fall all info tillbaks
 		app.get('/rawdump/:ticker', function (request, response) {
