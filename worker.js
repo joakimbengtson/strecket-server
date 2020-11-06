@@ -198,16 +198,17 @@ var Worker = module.exports = function(pool, poolMunch) {
 								var date2 = getFormattedDate(dates[1].date);
 						
 								// 60% över normal volym, stängt över gårdagen, över 51 week high, över sma200, omsatt mer än 5 miljoner $";
-								runQuery(munchConnection, 'SELECT a.symbol, a.volume, b.volume, a.close as lastClose, b.close as previousClose FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date = ? AND b.date = ? AND a.volume > b.AV14*1.6 AND a.close > b.close AND a.close > a.SMA200 AND a.close*a.AV14 > 5000000 AND a.close > a.open AND a.close >= stocks.wh51', [date1, date2]).then(function(rows) {
+								runQuery(munchConnection, 'SELECT a.symbol, a.volume, b.volume, a.close as lastClose, b.close as previousClose, a.ATR14 FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date = ? AND b.date = ? AND a.volume > b.AV14*1.6 AND a.close > b.close AND a.close > a.SMA200 AND a.close*a.AV14 > 5000000 AND a.close > a.open AND a.close >= stocks.wh51', [date1, date2]).then(function(rows) {
 									if (rows.length > 0) {
-										
+console.log("rows=", rows, date1);										
 										runQuery(connection, "SELECT * FROM spikes WHERE date=?", [date1]).then(function(hits) {
+											console.log("hits=", hits, hits.length);
 											if (hits.length == 0) {									
 												// Vi har inte sparat detta datum
 												rows.forEach(function(row) {
 													var tstamp = new Date();
-													
-													connection.query('INSERT INTO spikes SET date=?, ticker=?, timestamp=?', [date1, row.symbol, tstamp]);
+													console.log("sparar=", row.symbol);
+													connection.query('INSERT INTO spikes SET date=?, ticker=?, timestamp=?, ATR14=?', [date1, row.symbol, tstamp, row.ATR14]);
 												}); 									
 											}
 											else
@@ -223,7 +224,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 										console.log("Inga spikes hittade");
 									
 									// Markera alla som är under SMA200
-									console.log("Scheduled job: tag dogs, date=", gLastDate);
+									console.log("Scheduled job: tag dogs, date=", date1);
 									munchConnection.query('UPDATE stocks INNER JOIN stockquotes ON stocks.symbol = stockquotes.symbol SET stocks.dog = TRUE, stocks.dogDate = NOW() WHERE stockquotes.date=? and stockquotes.close < stocks.sma200 and stocks.dog IS NULL', [date1]);
 										
 								})
@@ -252,17 +253,6 @@ var Worker = module.exports = function(pool, poolMunch) {
 		});										
 	};
 
-	/*
-	function tagDogs() {
-		
-		poolMunch.getConnection(function(error, munchConnection) {
-			if (!error)
-				munchConnection.query('UPDATE stocks INNER JOIN stockquotes ON stocks.symbol = stockquotes.symbol SET stocks.dog = TRUE, stocks.dogDate = NOW() WHERE stockquotes.date=? and stockquotes.close < stocks.sma200 and stocks.dog IS NULL', [gLastDate]);
-			else
-				console.log("Kunde inte skapa en connection: ", error);
-		});
-		
-	}*/
 	
 	function calculateATRandSMA() {
 		var stocksCount = 0;
@@ -522,6 +512,7 @@ var Worker = module.exports = function(pool, poolMunch) {
 		console.log("Strecket Server startar!");
 		//sendSMS("Strecket Server startar!")
 		work();
+		saveSpikes();
 	};
 
 	init();
