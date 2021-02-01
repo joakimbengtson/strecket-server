@@ -13,6 +13,21 @@ var tokens = require('./tokens.js');
 
 const puppeteer = require('puppeteer');
 
+// Sector colors
+const colRealEstate            = '#bbe1fa';
+const colServices              = '#f0ece2';
+const colTechnology            = '#FBB949';
+const colUtilities             = '#ff8ba0';
+const colFinancialServices     = '#f6e9e9';
+const colFinancial             = '#add7ff';
+const colEnergy                = '#a3f7bf';
+const colBasicMaterials        = '#b9d2d2';
+const colCommunicationServices = '#5fb9b0';
+const colConsumerCyclical      = '#27e8a7';
+const colConsumerDefensive     = '#77abb7';
+const colHealthcare            = '#B88BF4';
+const colIndustrials           = '#F2A365';
+
 
 var _pool  = mySQL.createPool({
 	host     : tokens.HOST,
@@ -52,6 +67,69 @@ var Server = function(args) {
 		});
 
 		return args;
+	}
+	
+	// Gör om en mysql-fråga till en promise för att slippa callbacks/results/errors
+	function runQuery(connection, sql, options) {
+
+		return new Promise(function(resolve, reject) {
+			var query = connection.query(sql, options, function(error, result) {
+				if (error)
+					reject(error);
+				else
+					resolve(result);
+			});
+
+			// Skriver ut frågan helt enkelt i klartext
+			console.log("Query: ", query.sql);
+ 
+		});
+
+	}	
+
+	function getColor(sector) {
+		
+		if (sector == 'Real Estate')
+			return colRealEstate;
+
+		if (sector == 'Services')
+			return colServices;
+
+		if (sector == 'Technology')			
+			return colTechnology;
+
+		if (sector == 'Utilities')
+			return colUtilities;
+			
+		if (sector == 'Financial Services')						
+			return colFinancialServices;
+			
+		if (sector == 'Financial')			
+			return colFinancial;
+			
+		if (sector == 'Energy')			
+			return colEnergy;
+			
+		if (sector == 'Basic Materials')			
+			return colBasicMaterials;
+			
+		if (sector == 'Communication Services')			
+			return colCommunicationServices;
+			
+		if (sector == 'Consumer Cyclical')			
+			return colConsumerCyclical;
+			
+		if (sector == 'Consumer Defensive')			
+			return colConsumerDefensive;
+			
+		if (sector == 'Healthcare')			
+			return colHealthcare;
+			
+		if (sector == 'Industrials')			
+			return colIndustrials;
+			
+		 // Missing sector?	
+		return 'red';
 	}
 
 
@@ -108,7 +186,10 @@ var Server = function(args) {
 
 		return false;
 	}
-
+	
+	function getRandomArbitrary(min, max) {
+	    return (Math.random() * (max - min) + min).toFixed(0);
+	}	
 
 	function getSpyProgress(quotes) {
 		var spyProgress = [];
@@ -247,6 +328,7 @@ var Server = function(args) {
 		else
 			return d1;
 	}
+
 
 	function getFormattedDate(d) {
 		var dd = d.getDate();
@@ -423,60 +505,35 @@ var Server = function(args) {
 		
 	}
 
-	function listen() {
 
-		app.set('port', (args.port || 3000));
-		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }));
-		app.use(bodyParser.json({limit: '50mb'}));
-		app.use(cors());
-
-/* gamla /company innan sma20
-		app.get('/company/:ticker', function (request, response) {
-
-			var ticker = request.params.ticker;
-
+/*
+		app.get('/sectors', function (request, response) {
+			var series = [];
+						
 			_poolMunch.getConnection(function(err, connection) {
 				if (!err) {
-					connection.query('SELECT * FROM stocks WHERE symbol=?', ticker, function(error, rows, fields) {
+					connection.query('SELECT * FROM (SELECT stocks.industry, stocks.sector, sum(b.volume>b.AV14) as countVol, count(a.symbol) as countTotal, sum(b.close > b.SMA200) as countSMA200, sum(b.close>a.close)/count(b.close) as perc FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date=? AND b.date=? AND sector <> "" AND sector <> "n/a" AND industry <> "" GROUP BY sector, industry ORDER BY perc desc) jbn WHERE countTotal > 50', ["2021-01-08", "2021-01-11"], function(error, rows, fields) {
 						if (!error) {
-							getYahooQuote({symbol:ticker, modules: ['price', 'summaryDetail', 'summaryProfile', 'financialData', 'recommendationTrend', 'earnings', 'upgradeDowngradeHistory', 'defaultKeyStatistics',  'calendarEvents']}).then(function(snapshot) {
-								var misc = {};
+							
+							if (rows.length > 0) {
 
-								if (rows.length > 0) {
-									misc.atr14 = rows[0].ATR14;
-									misc.sma10 = rows[0].SMA10;
-									misc.av14 = rows[0].AV14;
-
-									snapshot.misc = misc;		
-
-									response.status(200).json(snapshot);
+								for (var i = 0; i < rows.length; i++) {
+									var row = {};
 									
+									row.x = parseInt((rows[i].perc * 500 + 10).toFixed(0));
+									row.y = parseInt((rows[i].countVol/rows[i].countTotal * 500));
+									row.z = parseInt((rows[i].countSMA200/rows[i].countTotal * 200).toFixed(0));
+									row.id = rows[i].industry;
+									row.sector = rows[i].sector;
+									row.color = getColor(rows[i].sector);
+									series.push(row);	
 								}
-								else {
-									var today = getFormattedDate(new Date());
-									var monthAgo = getFormattedDate(new Date(+new Date - (1000 * 60 * 60 * 24 * 23)));
-
-									getYahooHistorical({symbol:ticker, from: monthAgo, to: today, period: 'd'}).then(function(quotes) {
-										var indicators = getIndicators(quotes);
-										misc.atr14 = indicators.atr14;
-										misc.av14  = indicators.av14;
-										misc.sma10 = indicators.sma10;										
-																														
-										snapshot.misc = misc;		
-
-										response.status(200).json(snapshot);
-
-									})
-									.catch(function(error) {
-										response.status(404).json(['getYahooHistorical failed.']);
-									});									
-
-								}
-
-							})
-							.catch(function(error) {
-								response.status(404).json(['getYahooQuote failed.']);
-							});
+								
+								response.status(200).json(series);								
+								
+							}
+							else
+								response.status(200).json([]);							
 						}
 						else {
 							console.log("SELECT * FROM stocks misslyckades: ", error);
@@ -492,7 +549,94 @@ var Server = function(args) {
 			});
 
 		})
-*/
+	
+	*/
+
+	function listen() {
+
+		app.set('port', (args.port || 3000));
+		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }));
+		app.use(bodyParser.json({limit: '50mb'}));
+		app.use(cors());
+		
+		app.get('/sectors', function (request, response) {
+			var counter = 1;
+			var series = [];
+									
+			_poolMunch.getConnection(function(err, connection) {
+				if (!err) {
+
+					runQuery(connection, 'select distinct date from (SELECT COUNT(date) as c, date FROM stockquotes GROUP BY date HAVING c > 1000) tradeDays order by date desc limit 20').then(function(dates) {
+//console.log("dates", dates);
+						for (var j = 0; j < dates.length-1; j++) {
+
+							var date1 = getFormattedDate(dates[j+1].date);
+							var date2 = getFormattedDate(dates[j].date);							
+
+//						console.log("tittar på datum", date1, date2);							
+
+							connection.query('SELECT * FROM (SELECT b.date AS date, stocks.industry, stocks.sector, sum(b.volume>b.AV14) AS countVol, count(a.symbol) AS countTotal, sum(b.close > b.SMA200) AS countSMA200, sum(b.close>a.close)/count(b.close) AS perc FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date=? AND b.date=? AND sector <> "" AND sector <> "n/a" AND industry <> "" GROUP BY sector, industry ORDER BY perc desc) jbn WHERE countTotal > 50', [date1, date2], function(error, rows, fields) {
+								if (!error) {
+									var row = [];
+									
+									if (rows.length > 0) {
+			
+										for (var i = 0; i < rows.length; i++) {
+											var sectorData = {};
+											
+											sectorData.x = parseInt((rows[i].perc * 500 + 10).toFixed(0));
+											sectorData.y = parseInt((rows[i].countVol/rows[i].countTotal * 500));
+											sectorData.z = parseInt((rows[i].countSMA200/rows[i].countTotal * 200).toFixed(0));
+											sectorData.id = rows[i].industry;
+											sectorData.sector = rows[i].sector;
+											sectorData.color = getColor(rows[i].sector);
+											
+											row.push(sectorData);	
+											
+										}
+										
+//										console.log("++row", row);
+										
+										series.push([{date: getFormattedDate(rows[0].date)}, row]);
+
+//										console.log("series", series);										
+//										console.log("counter dates.len", counter, dates.length);
+																				
+										if (counter >= dates.length-1) {
+//											console.log("Exit ->", series);											
+											connection.release();
+											response.status(200).json(series);																				
+										}																																											
+										
+										++counter;
+//										console.log("Ökar counter till", counter);
+										
+//										console.log("-----------------------------------------------------------------------");										
+										
+									}
+									else
+										response.status(200).json([]);							
+								}
+								else {
+									console.log("SELECT * FROM stocks misslyckades: ", error);
+									response.status(200).json([]);
+								}
+							});
+						}
+					})
+					.catch(function(error) {
+						connection.release();																	
+						console.log("Error:runQuery:connection:getdates", error);
+					});						
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);
+				}
+			});				
+
+		})
+		
 		
 		app.get('/company/:ticker', function (request, response) {
 

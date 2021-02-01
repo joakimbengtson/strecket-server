@@ -197,8 +197,8 @@ var Worker = module.exports = function(pool, poolMunch) {
 								var date1 = getFormattedDate(dates[0].date);
 								var date2 = getFormattedDate(dates[1].date);
 						
-								// 60% över normal volym, stängt över gårdagen, över 51 week high, över sma200, omsatt mer än 5 miljoner $";
-								runQuery(munchConnection, 'SELECT a.symbol, a.volume, b.volume, a.close as lastClose, b.close as previousClose, a.ATR14 FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date = ? AND b.date = ? AND a.volume > b.AV14*1.6 AND a.close > b.close AND a.close > a.SMA200 AND a.close*a.AV14 > 5000000 AND a.close > a.open AND a.close >= stocks.wh51', [date1, date2]).then(function(rows) {
+								// 60% över normal volym, stängt över gårdagen, över 51 week high, över sma200, omsatt mer än 5 miljoner $ och inte 'Biotech'";
+								runQuery(munchConnection, 'SELECT a.symbol, a.volume, b.volume, a.close as lastClose, b.close as previousClose, a.ATR14 FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date = ? AND b.date = ? AND a.volume > b.AV14*1.6 AND a.close > b.close AND a.close > a.SMA200 AND a.close*a.AV14 > 5000000 AND a.close > a.open AND a.close >= stocks.wh51 AND stocks.industry != "Biotechnology"', [date1, date2]).then(function(rows) {
 									if (rows.length > 0) {
 console.log("rows=", rows, date1);										
 										runQuery(connection, "SELECT * FROM spikes WHERE date=?", [date1]).then(function(hits) {
@@ -277,8 +277,10 @@ console.log("rows=", rows, date1);
 										
 										connection.query('UPDATE aktier SET ATR=?, SMA20=? WHERE id=?', [rows[0].ATR14, rows[0].SMA20, stock.id]);
 									}
-									else
-										console.log(stock.ticker, "finns inte i Munch/stocks.");
+									else {
+										console.log(stock.ticker, "finns inte i Munch/stocks. Försöker lägga till", stock.ticker);
+										munchConnection.query('INSERT INTO stocks(symbol) VALUES(?)', [stock.ticker]);
+									}
 																										
 									++stocksCount;
 																				
