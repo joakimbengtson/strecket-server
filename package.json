@@ -5,6 +5,8 @@
   "main": "app.js",
   "scripts": {
 	"git-commit": "git add -A && git commit -m '-' && git push",
+	"git-reset": "git reset --hard HEAD",
+	"git-pull": "git pull",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
