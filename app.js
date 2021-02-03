@@ -584,12 +584,18 @@ var Server = function(args) {
 										for (var i = 0; i < rows.length; i++) {
 											var sectorData = {};
 											
+											// Hur många % har stängt över gårdagen
 											sectorData.x = parseInt((rows[i].perc * 500 + 10).toFixed(0));
+											
+											// Höjd -> Aktivitet, hur många som handlas över 14-dagars snitt
 											sectorData.y = parseInt((rows[i].countVol/rows[i].countTotal * 500));
+											
+											// Storlek på bubblan -> Hur många över SMA200
 											sectorData.z = parseInt((rows[i].countSMA200/rows[i].countTotal * 200).toFixed(0));
+											
 											sectorData.id = rows[i].industry;
 											sectorData.sector = rows[i].sector;
-											sectorData.color = getColor(rows[i].sector);
+											sectorData.color = getColor(rows[i].sector); // Samma färg på alla inom samma sektor
 											
 											row.push(sectorData);	
 											
