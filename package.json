@@ -4,6 +4,9 @@
   "description": "",
   "main": "app.js",
   "scripts": {
+    "git-commit": "git add -A && git commit -m '-' && git push",
+    "git-reset": "git reset --hard HEAD",
+    "git-pull": "git pull",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -27,6 +30,6 @@
     "react-sparklines": "^1.6.0",
     "twilio": "^3.6.6",
     "yahoo-finance": "^0.3.6",
-    "yow": "^1.0.46"
+    "yow": "^1.0.108"
   }
 }
