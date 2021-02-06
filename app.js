@@ -31,6 +31,7 @@ const colIndustrials           = '#F2A365';
 
 var _pool  = mySQL.createPool({
 	host     : tokens.HOST,
+	port     : tokens.PORT,
 	user     : tokens.USER,
 	password : tokens.PW,
 	database : 'strecket'
@@ -39,6 +40,7 @@ var _pool  = mySQL.createPool({
 
 var _poolMunch  = mySQL.createPool({
 	host     : tokens.HOST,
+	port     : tokens.PORT,	
 	user     : tokens.USER,
 	password : tokens.PW,
 	database : 'munch'
