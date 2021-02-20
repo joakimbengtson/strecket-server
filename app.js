@@ -481,7 +481,7 @@ var Server = function(args) {
 
 			if (i < 20)
 				sma20 = sma20 + quotes[i].close;
-			
+				
 			if (i < 14) {				
 				if (firstQuote) {
 					firstQuote = false;
@@ -502,57 +502,11 @@ var Server = function(args) {
 		        atr14: (atr / 14).toFixed(2),
 		        av14: Math.round(vol / 14),
 		        sma10: (sma10 / 10).toFixed(2),
-		        sma20: (sma20 / 20).toFixed(2)		        
+		        sma20: (sma20 / 20).toFixed(2)		        		        
 		};		
 		
 	}
 
-
-/*
-		app.get('/sectors', function (request, response) {
-			var series = [];
-						
-			_poolMunch.getConnection(function(err, connection) {
-				if (!err) {
-					connection.query('SELECT * FROM (SELECT stocks.industry, stocks.sector, sum(b.volume>b.AV14) as countVol, count(a.symbol) as countTotal, sum(b.close > b.SMA200) as countSMA200, sum(b.close>a.close)/count(b.close) as perc FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date=? AND b.date=? AND sector <> "" AND sector <> "n/a" AND industry <> "" GROUP BY sector, industry ORDER BY perc desc) jbn WHERE countTotal > 50', ["2021-01-08", "2021-01-11"], function(error, rows, fields) {
-						if (!error) {
-							
-							if (rows.length > 0) {
-
-								for (var i = 0; i < rows.length; i++) {
-									var row = {};
-									
-									row.x = parseInt((rows[i].perc * 500 + 10).toFixed(0));
-									row.y = parseInt((rows[i].countVol/rows[i].countTotal * 500));
-									row.z = parseInt((rows[i].countSMA200/rows[i].countTotal * 200).toFixed(0));
-									row.id = rows[i].industry;
-									row.sector = rows[i].sector;
-									row.color = getColor(rows[i].sector);
-									series.push(row);	
-								}
-								
-								response.status(200).json(series);								
-								
-							}
-							else
-								response.status(200).json([]);							
-						}
-						else {
-							console.log("SELECT * FROM stocks misslyckades: ", error);
-							response.status(200).json([]);
-						}
-						connection.release();
-					});
-				}
-				else {
-					console.log("Kunde inte skapa en connection: ", err);
-					response.status(200).json([]);
-				}
-			});
-
-		})
-	
-	*/
 
 	function listen() {
 
@@ -560,6 +514,46 @@ var Server = function(args) {
 		app.use(bodyParser.urlencoded({ limit: '50mb', extended: false }));
 		app.use(bodyParser.json({limit: '50mb'}));
 		app.use(cors());
+		
+		app.get('/stonks/:industry', function (request, response) {
+			var industry = request.params.industry;
+console.log("industry=", industry);						
+			_poolMunch.getConnection(function(err, connection) {
+				if (!err) {
+
+					runQuery(connection, 'select distinct date from (SELECT COUNT(date) as c, date FROM stockquotes GROUP BY date HAVING c > 1000) tradeDays order by date desc limit 2').then(function(dates) {
+
+						var date1 = getFormattedDate(dates[1].date);
+						var date2 = getFormattedDate(dates[0].date);							
+
+						connection.query('SELECT stocks.symbol, stocks.name, (b.volume/b.AV14-1) as volym, (b.close/a.close-1) as hastighet FROM stockquotes a INNER JOIN stockquotes b ON a.symbol = b.symbol INNER JOIN stocks ON stocks.symbol = a.symbol WHERE a.date=? and b.date=? and industry=?', [date1, date2, industry], function(error, rows, fields) {
+							if (!error) {
+								if (rows.length > 0) {		
+									connection.release();
+									response.status(200).json(rows);
+								}
+								else
+									response.status(200).json([]);							
+							}
+							else {
+								console.log("SELECT stocks.symbol... misslyckades: ", error);
+								response.status(200).json([]);
+							}
+						});
+					})
+					.catch(function(error) {
+						connection.release();																	
+						console.log("Error:runQuery:connection:getdates", error);
+					});						
+				}
+				else {
+					console.log("Kunde inte skapa en connection: ", err);
+					response.status(200).json([]);
+				}
+			});				
+
+		})
+		
 		
 		app.get('/sectors', function (request, response) {
 			var counter = 1;
@@ -667,13 +661,15 @@ var Server = function(args) {
 										misc.atr14 = rows[0].ATR14;
 										misc.av14 = rows[0].AV14;											
 										misc.sma10 = rows[0].SMA10;
-										misc.sma20 = rows[0].SMA20;										
+										misc.sma20 = rows[0].SMA20;
+										misc.sma50 = rows[0].SMA50;										
 									} else {
 										// Vi har själva räknat ut värdena i getIndicators
 										misc.atr14 = indicators.atr14;
 										misc.av14  = indicators.av14;
 										misc.sma10 = indicators.sma10;																				
 										misc.sma20 = indicators.sma20;										
+										misc.sma50 = snapshot.summaryDetail.fiftyDayAverage;										
 									}
 																													
 									snapshot.misc = misc;		
@@ -719,6 +715,7 @@ var Server = function(args) {
                         var options = {};
                         options.host     = tokens.HOST;
                         options.user     = tokens.USER;
+                        options.port     = tokens.PORT;
                         options.password = tokens.PW;
                         options.database = 'munch';
                         
@@ -1473,9 +1470,11 @@ console.log("Volymer:", values.ticker, snapshot.summaryDetail.averageVolume, sna
 						else {
 							console.log("Aktien finns inte, skapar ny: ", post);
 
-							connection.query('INSERT INTO aktier SET ?, köpt_datum=NOW()', post, function(err, result) {
-								if (err)
-									response.status(404).json({error:err});
+							connection.query('INSERT INTO aktier SET ?', post, function(err, result) {
+								if (err) {
+									console.log("INSERT failed:", err);
+									response.status(404).json({error:err});									
+								}
 								else
 									response.status(200).json({status:result});
 

@@ -74,6 +74,8 @@ var Worker = module.exports = function(pool, poolMunch) {
 	// Skickar sms till jbn
 	function sendSMS(txtMsg) {
 		return new Promise(function(resolve, reject) {
+			
+			console.log("Laddar Twilio:", tokens.TWILIO_ACCOUNT_SID, tokens.TWILIO_AUTH_TOKEN);
 
 			var client = require('twilio')(tokens.TWILIO_ACCOUNT_SID, tokens.TWILIO_AUTH_TOKEN);			 
 
@@ -353,6 +355,10 @@ console.log("rows=", rows, date1);
 
 					case config.stoplossType.StoplossTypeSMA20:
 						stopLossQuote = stock.SMA20;
+						break;					
+
+					case config.stoplossType.StoplossTypeSMA50:
+						stopLossQuote = stock.SMA50;
 						break;					
 						
 					default:
